@@ -53,7 +53,8 @@ class ServerProvider extends ChangeNotifier {
       maxRamGb: 2.0,
       publicAddress: 'tame-creeper-40.bore.pub:38472',
       motd: 'Powered with ❤️ by CS LAUNCHER',
-      bedrockSupport: true,
+      platformType: PlatformType.both,
+      aiBuilderEnabled: true,
     );
 
     final demo2 = ServerModel(
@@ -65,6 +66,7 @@ class ServerProvider extends ChangeNotifier {
       status: ServerStatus.offline,
       maxPlayers: 20,
       maxRamGb: 1.5,
+      platformType: PlatformType.java,
     );
 
     _servers = [demo1, demo2];
@@ -84,6 +86,8 @@ class ServerProvider extends ChangeNotifier {
       '10:10:24 INFO Starting public tunnel (bore.pub)...',
       '10:10:25 INFO Tunnel established → tame-creeper-40.bore.pub:38472',
       '10:10:25 INFO Friends can join using the public address above',
+      '10:10:25 INFO Platform: Java + Bedrock (Geyser + Floodgate)',
+      '10:10:25 INFO AI Builder ready',
     ];
     notifyListeners();
   }
@@ -193,8 +197,16 @@ class ServerProvider extends ChangeNotifier {
     notifyListeners();
 
     _addLog(id, 'INFO Preparing server files...');
+    if (server.hasCustomWorld && server.worldPath != null) {
+      _addLog(id, 'INFO Loading imported world: ${server.worldPath}');
+    }
     await Future.delayed(const Duration(milliseconds: 350));
-    _addLog(id, 'INFO Starting Java process...');
+
+    if (server.platformType == PlatformType.bedrock) {
+      _addLog(id, 'INFO Starting PowerNukkitX (Bedrock) process...');
+    } else {
+      _addLog(id, 'INFO Starting Java process...');
+    }
     await Future.delayed(const Duration(milliseconds: 550));
 
     final installed = _installedPlugins[id] ?? [];
@@ -205,6 +217,11 @@ class ServerProvider extends ChangeNotifier {
         await Future.delayed(const Duration(milliseconds: 120));
         _addLog(id, 'INFO [Plugins] Loaded ${p.name} v${p.version}');
       }
+    }
+
+    if (server.platformType == PlatformType.both) {
+      _addLog(id, 'INFO Loading Geyser + Floodgate for Bedrock cross-play...');
+      await Future.delayed(const Duration(milliseconds: 300));
     }
 
     _addLog(id, 'INFO Loading server.properties...');
@@ -218,7 +235,6 @@ class ServerProvider extends ChangeNotifier {
     _addLog(id, 'INFO All worlds loaded successfully.');
     _addLog(id, 'INFO Done (2.847s)! For help, type "help"');
 
-    // Realistic tunnel simulation
     _addLog(id, 'INFO Starting public tunnel (bore.pub)...');
     await Future.delayed(const Duration(milliseconds: 450));
     final random = Random();
@@ -232,9 +248,10 @@ class ServerProvider extends ChangeNotifier {
     server.publicAddress = '$host:$port';
     _addLog(id, 'INFO Tunnel established → ${server.publicAddress}');
     _addLog(id, 'INFO Friends can join using the public address above');
+    _addLog(id, 'INFO Platform: ${server.platformLabel}');
 
-    if (server.bedrockSupport) {
-      _addLog(id, 'INFO Bedrock cross-play enabled (Geyser + Floodgate)');
+    if (server.aiBuilderEnabled) {
+      _addLog(id, 'INFO AI Builder ready — describe builds in the AI tab');
     }
 
     server.status = ServerStatus.online;
