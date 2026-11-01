@@ -17,18 +17,12 @@ import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.regex.Pattern
-import java.util.zip.GZIPInputStream
-import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 
 /**
- * MineServe-style tunneling:
- * - Native bore binary (outside any container)
- * - Auto-download from GitHub releases if missing
- * - bore.pub free TCP tunnel
- * - Parse "listening at host:port"
- *
- * NOTE: Tar extract uses simple stream copy if commons-compress not on classpath;
- * fallback downloads pre-named single-file when possible.
+ * MineServe-style public tunnel:
+ * - Auto-download bore native binary (GitHub releases)
+ * - Run outside container for low latency
+ * - bore.pub free TCP → parse public host:port
  */
 class ServerHostPlugin : FlutterPlugin, MethodCallHandler {
     private lateinit var channel: MethodChannel
@@ -45,7 +39,6 @@ class ServerHostPlugin : FlutterPlugin, MethodCallHandler {
         Pattern.CASE_INSENSITIVE
     )
 
-    // ekzhang/bore release assets
     private val boreVersion = "0.5.2"
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -97,7 +90,7 @@ class ServerHostPlugin : FlutterPlugin, MethodCallHandler {
                                     mapOf(
                                         "ok" to false,
                                         "mode" to "tunnel_failed",
-                                        "message" to "bore started but no public address parsed"
+                                        "message" to "no public address from bore"
                                     )
                                 )
                             }
@@ -145,7 +138,7 @@ class ServerHostPlugin : FlutterPlugin, MethodCallHandler {
             "startServer" -> {
                 val serverId = call.argument<String>("serverId")
                     ?: return result.error("ARG", "serverId", null)
-                pushLog(serverId, "INFO [Native] startServer (MineServe-style stack next: PRoot+JRE)")
+                pushLog(serverId, "INFO [Native] startServer skeleton (PRoot+JRE like MineServe = next)")
                 result.success(mapOf("ok" to true, "mode" to "skeleton"))
             }
 
@@ -209,7 +202,6 @@ class ServerHostPlugin : FlutterPlugin, MethodCallHandler {
         return null
     }
 
-    /** MineServe-style: download native bore if missing */
     private fun ensureBoreBinary(serverId: String) {
         if (findBoreBinary() != null) {
             pushLog(serverId, "INFO [Tunnel] bore binary OK")
@@ -219,7 +211,6 @@ class ServerHostPlugin : FlutterPlugin, MethodCallHandler {
         val abi = when {
             Build.SUPPORTED_ABIS.contains("arm64-v8a") -> "aarch64-unknown-linux-musl"
             Build.SUPPORTED_ABIS.contains("x86_64") -> "x86_64-unknown-linux-musl"
-            Build.SUPPORTED_ABIS.contains("armeabi-v7a") -> "armv7-unknown-linux-musleabihf"
             else -> "aarch64-unknown-linux-musl"
         }
 
@@ -233,34 +224,22 @@ class ServerHostPlugin : FlutterPlugin, MethodCallHandler {
         val tarGz = File(toolsDir(), asset)
         downloadFile(url, tarGz)
 
-        // Extract with system tar if available (Android  toybox/busybox often has tar)
-        val dest = File(toolsDir(), "bore")
         val extract = ProcessBuilder(
             "tar", "-xzf", tarGz.absolutePath, "-C", toolsDir().absolutePath
         ).redirectErrorStream(true).start()
         extract.waitFor()
 
-        // tarball usually contains top-level "bore"
-        var binary = File(toolsDir(), "bore")
+        val binary = File(toolsDir(), "bore")
         if (!binary.exists()) {
-            toolsDir().listFiles()?.forEach { f ->
-                if (f.isFile && f.name == "bore") binary = f
-            }
+            throw Exception("bore extract failed")
         }
-
-        if (!binary.exists()) {
-            // last resort: some builds ship uncompressed name
-            throw Exception("bore extract failed — install manually (docs/BORE_CONNECT.md)")
-        }
-
         binary.setExecutable(true)
         tarGz.delete()
-        pushLog(serverId, "INFO [Tunnel] bore installed → ${binary.absolutePath}")
+        pushLog(serverId, "INFO [Tunnel] bore installed")
     }
 
     private fun downloadFile(urlStr: String, out: File) {
-        val url = URL(urlStr)
-        val conn = url.openConnection() as HttpURLConnection
+        val conn = URL(urlStr).openConnection() as HttpURLConnection
         conn.connectTimeout = 30000
         conn.readTimeout = 60000
         conn.instanceFollowRedirects = true
@@ -269,9 +248,7 @@ class ServerHostPlugin : FlutterPlugin, MethodCallHandler {
             throw Exception("Download failed HTTP ${conn.responseCode}")
         }
         conn.inputStream.use { input ->
-            FileOutputStream(out).use { output ->
-                input.copyTo(output)
-            }
+            FileOutputStream(out).use { output -> input.copyTo(output) }
         }
         conn.disconnect()
     }
@@ -297,7 +274,7 @@ class ServerHostPlugin : FlutterPlugin, MethodCallHandler {
             cmd.add(secret)
         }
 
-        pushLog(serverId, "INFO [Tunnel] Starting bore → $toHost (port $localPort)")
+        pushLog(serverId, "INFO [Tunnel] Starting bore → $toHost")
 
         val pb = ProcessBuilder(cmd)
         pb.redirectErrorStream(true)
