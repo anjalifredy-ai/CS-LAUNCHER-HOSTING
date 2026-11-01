@@ -9,7 +9,7 @@ enum ServerSoftware {
   forge,
   vanilla,
   powernukkitx, // Native Bedrock
-  pumpkin, // Fast low-RAM
+  pumpkin, // Fast low-RAM Java alternative
 }
 
 enum ServerStatus {
@@ -28,6 +28,13 @@ enum GameTemplate {
   oneblock,
   acidisland,
   caveblock,
+}
+
+/// What platforms players can join from
+enum PlatformType {
+  java, // Java Edition only
+  bedrock, // Bedrock Edition only (PowerNukkitX etc.)
+  both, // Java + Bedrock via Geyser/Floodgate
 }
 
 class ServerModel {
@@ -56,11 +63,20 @@ class ServerModel {
   DateTime? lastStarted;
   String motd;
 
+  // Platform
+  PlatformType platformType;
+
   // Anvil-style extras
-  bool bedrockSupport; // Geyser + Floodgate
   bool whitelistEnabled;
   GameTemplate template;
   String tunnelRegion; // EU, US, AS etc.
+
+  // World & Files
+  String? worldPath; // path to imported world folder / zip
+  bool hasCustomWorld;
+
+  // AI Builder
+  bool aiBuilderEnabled;
 
   ServerModel({
     required this.id,
@@ -87,11 +103,22 @@ class ServerModel {
     DateTime? createdAt,
     this.lastStarted,
     this.motd = 'A Minecraft Server powered by CS LAUNCHER',
-    this.bedrockSupport = false,
+    this.platformType = PlatformType.java,
     this.whitelistEnabled = false,
     this.template = GameTemplate.none,
     this.tunnelRegion = 'EU',
+    this.worldPath,
+    this.hasCustomWorld = false,
+    this.aiBuilderEnabled = false,
   }) : createdAt = createdAt ?? DateTime.now();
+
+  /// Convenience: true when Bedrock players can join
+  bool get bedrockSupport =>
+      platformType == PlatformType.bedrock || platformType == PlatformType.both;
+
+  /// Convenience: true when Java players can join
+  bool get javaSupport =>
+      platformType == PlatformType.java || platformType == PlatformType.both;
 
   String get softwareLabel {
     switch (software) {
@@ -113,6 +140,17 @@ class ServerModel {
         return 'PowerNukkitX';
       case ServerSoftware.pumpkin:
         return 'Pumpkin';
+    }
+  }
+
+  String get platformLabel {
+    switch (platformType) {
+      case PlatformType.java:
+        return 'Java';
+      case PlatformType.bedrock:
+        return 'Bedrock';
+      case PlatformType.both:
+        return 'Java + Bedrock';
     }
   }
 
@@ -146,10 +184,15 @@ class ServerModel {
   }
 
   String get subtitle {
-    final base = '${softwareLabel} · $maxPlayers players';
-    if (bedrockSupport) return '$base · Cross-play';
-    if (software == ServerSoftware.powernukkitx) return '$base · Bedrock';
-    return base;
+    final base = '$softwareLabel · $maxPlayers players';
+    switch (platformType) {
+      case PlatformType.both:
+        return '$base · Cross-play';
+      case PlatformType.bedrock:
+        return '$base · Bedrock';
+      case PlatformType.java:
+        return base;
+    }
   }
 
   String get templateLabel {
@@ -197,14 +240,28 @@ class ServerModel {
       'createdAt': createdAt.toIso8601String(),
       'lastStarted': lastStarted?.toIso8601String(),
       'motd': motd,
-      'bedrockSupport': bedrockSupport,
+      'platformType': platformType.name,
       'whitelistEnabled': whitelistEnabled,
       'template': template.name,
       'tunnelRegion': tunnelRegion,
+      'worldPath': worldPath,
+      'hasCustomWorld': hasCustomWorld,
+      'aiBuilderEnabled': aiBuilderEnabled,
     };
   }
 
   factory ServerModel.fromJson(Map<String, dynamic> json) {
+    // Backward compat for old bedrockSupport flag
+    PlatformType platform = PlatformType.java;
+    if (json['platformType'] != null) {
+      platform = PlatformType.values.firstWhere(
+        (e) => e.name == json['platformType'],
+        orElse: () => PlatformType.java,
+      );
+    } else if (json['bedrockSupport'] == true) {
+      platform = PlatformType.both;
+    }
+
     return ServerModel(
       id: json['id'],
       name: json['name'],
@@ -238,13 +295,16 @@ class ServerModel {
           ? DateTime.tryParse(json['lastStarted'])
           : null,
       motd: json['motd'] ?? 'A Minecraft Server powered by CS LAUNCHER',
-      bedrockSupport: json['bedrockSupport'] ?? false,
+      platformType: platform,
       whitelistEnabled: json['whitelistEnabled'] ?? false,
       template: GameTemplate.values.firstWhere(
         (e) => e.name == json['template'],
         orElse: () => GameTemplate.none,
       ),
       tunnelRegion: json['tunnelRegion'] ?? 'EU',
+      worldPath: json['worldPath'],
+      hasCustomWorld: json['hasCustomWorld'] ?? false,
+      aiBuilderEnabled: json['aiBuilderEnabled'] ?? false,
     );
   }
 }
