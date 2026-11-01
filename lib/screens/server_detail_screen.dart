@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import '../providers/server_provider.dart';
 import '../models/server_model.dart';
 import 'server_settings_screen.dart';
+import 'plugins_screen.dart';
 
 class ServerDetailScreen extends StatefulWidget {
   final String serverId;
@@ -65,13 +66,31 @@ class _ServerDetailScreenState extends State<ServerDetailScreen>
 
         final logs = provider.getLogs(server.id);
         final isOnline = server.status == ServerStatus.online;
+        final installedCount = provider.getInstalledPluginIds(server.id).length;
 
         return Scaffold(
           backgroundColor: AppTheme.background,
           appBar: AppBar(
             title: Text(server.name),
             actions: [
-              // Quick Start / Stop from app bar
+              // Plugins button
+              IconButton(
+                icon: Badge(
+                  isLabelVisible: installedCount > 0,
+                  label: Text('$installedCount'),
+                  child: const Icon(Icons.extension),
+                ),
+                tooltip: 'Plugins',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PluginsScreen(serverId: server.id),
+                    ),
+                  );
+                },
+              ),
+              // Quick Start / Stop
               if (isOnline)
                 IconButton(
                   icon: const Icon(Icons.stop_circle_outlined, color: AppTheme.error),
@@ -114,7 +133,6 @@ class _ServerDetailScreenState extends State<ServerDetailScreen>
               // ===== CONSOLE TAB =====
               Column(
                 children: [
-                  // Live output header
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -151,7 +169,6 @@ class _ServerDetailScreenState extends State<ServerDetailScreen>
                       ],
                     ),
                   ),
-                  // Logs
                   Expanded(
                     child: logs.isEmpty
                         ? Center(
@@ -170,7 +187,6 @@ class _ServerDetailScreenState extends State<ServerDetailScreen>
                             },
                           ),
                   ),
-                  // Command input
                   Container(
                     padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
                     decoration: const BoxDecoration(
@@ -282,7 +298,6 @@ class _LogLine extends StatelessWidget {
     } else if (log.contains(' INFO ')) {
       levelColor = AppTheme.info;
     } else if (log.contains(' > ')) {
-      // User typed command
       levelColor = AppTheme.accentGreen;
       weight = FontWeight.w500;
     }
@@ -469,6 +484,8 @@ class _InfoTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final installed = provider.getInstalledPlugins(server.id);
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -501,6 +518,24 @@ class _InfoTab extends StatelessWidget {
                     backgroundColor: AppTheme.surfaceLight,
                     valueColor: const AlwaysStoppedAnimation(AppTheme.primaryGreen),
                     minHeight: 8,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _InfoCard(
+          title: 'Plugins',
+          children: [
+            _InfoRow('Installed', '${installed.length}'),
+            if (installed.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  installed.map((p) => p.name).join(', '),
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    color: AppTheme.textSecondary,
                   ),
                 ),
               ),
