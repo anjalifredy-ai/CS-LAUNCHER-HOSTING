@@ -19,10 +19,10 @@ import java.util.concurrent.Executors
 import java.util.regex.Pattern
 
 /**
- * MineServe-style public tunnel:
- * - Auto-download bore native binary (GitHub releases)
- * - Run outside container for low latency
- * - bore.pub free TCP → parse public host:port
+ * MineServe-style host plugin:
+ * - Auto bore download + bore.pub tunnel
+ * - prepareServer: Paper jar URL download + eula.txt
+ * - startServer: java -jar if JRE found under files/runtime
  */
 class ServerHostPlugin : FlutterPlugin, MethodCallHandler {
     private lateinit var channel: MethodChannel
@@ -65,6 +65,61 @@ class ServerHostPlugin : FlutterPlugin, MethodCallHandler {
 
     override fun onMethodCall(call: MethodCall, result: Result) {
         when (call.method) {
+            "prepareServer" -> {
+                val serverId = call.argument<String>("serverId")
+                    ?: return result.error("ARG", "serverId", null)
+                val jarUrl = call.argument<String>("jarUrl")
+                val version = call.argument<String>("version") ?: "1.21.1"
+
+                executor.execute {
+                    try {
+                        val dir = serverDir(serverId)
+                        val jar = File(dir, "server.jar")
+                        if (!jar.exists() || jar.length() < 1000) {
+                            if (jarUrl.isNullOrBlank()) {
+                                throw Exception("jarUrl required for first download")
+                            }
+                            pushLog(serverId, "INFO [Setup] Downloading Paper $version...")
+                            downloadFile(jarUrl, jar)
+                            pushLog(serverId, "INFO [Setup] server.jar ready (${jar.length() / 1024 / 1024} MB)")
+                        } else {
+                            pushLog(serverId, "INFO [Setup] server.jar already present")
+                        }
+
+                        val eula = File(dir, "eula.txt")
+                        if (!eula.exists()) {
+                            eula.writeText("eula=true\n")
+                            pushLog(serverId, "INFO [Setup] eula.txt accepted")
+                        }
+
+                        // minimal server.properties
+                        val props = File(dir, "server.properties")
+                        if (!props.exists()) {
+                            props.writeText(
+                                "server-port=25565\nonline-mode=true\nmotd=CS LAUNCHER\nmax-players=20\n"
+                            )
+                        }
+
+                        android.os.Handler(appContext.mainLooper).post {
+                            result.success(
+                                mapOf(
+                                    "ok" to true,
+                                    "serverDir" to dir.absolutePath,
+                                    "jarPath" to jar.absolutePath
+                                )
+                            )
+                        }
+                    } catch (e: Exception) {
+                        pushLog(serverId, "ERROR [Setup] ${e.message}")
+                        android.os.Handler(appContext.mainLooper).post {
+                            result.success(
+                                mapOf("ok" to false, "message" to (e.message ?: "prepare failed"))
+                            )
+                        }
+                    }
+                }
+            }
+
             "startTunnel" -> {
                 val serverId = call.argument<String>("serverId")
                     ?: return result.error("ARG", "serverId", null)
@@ -90,7 +145,7 @@ class ServerHostPlugin : FlutterPlugin, MethodCallHandler {
                                     mapOf(
                                         "ok" to false,
                                         "mode" to "tunnel_failed",
-                                        "message" to "no public address from bore"
+                                        "message" to "no public address"
                                     )
                                 )
                             }
@@ -120,26 +175,86 @@ class ServerHostPlugin : FlutterPlugin, MethodCallHandler {
 
             "hasBoreBinary" -> result.success(findBoreBinary() != null)
 
-            "ensureBore" -> {
-                executor.execute {
-                    try {
-                        ensureBoreBinary("system")
-                        android.os.Handler(appContext.mainLooper).post {
-                            result.success(findBoreBinary() != null)
-                        }
-                    } catch (e: Exception) {
-                        android.os.Handler(appContext.mainLooper).post {
-                            result.error("DL", e.message, null)
-                        }
-                    }
-                }
-            }
-
             "startServer" -> {
                 val serverId = call.argument<String>("serverId")
                     ?: return result.error("ARG", "serverId", null)
-                pushLog(serverId, "INFO [Native] startServer skeleton (PRoot+JRE like MineServe = next)")
-                result.success(mapOf("ok" to true, "mode" to "skeleton"))
+                val maxRamMb = call.argument<Int>("maxRamMb") ?: 1024
+                val jarPath = call.argument<String>("jarPath")
+                val workingDir = call.argument<String>("workingDir")
+
+                executor.execute {
+                    try {
+                        val dir = if (workingDir != null) File(workingDir) else serverDir(serverId)
+                        val jar = if (jarPath != null) File(jarPath) else File(dir, "server.jar")
+                        if (!jar.exists()) {
+                            android.os.Handler(appContext.mainLooper).post {
+                                result.success(
+                                    mapOf(
+                                        "ok" to false,
+                                        "mode" to "no_jar",
+                                        "message" to "server.jar missing — call prepareServer first"
+                                    )
+                                )
+                            }
+                            return@execute
+                        }
+
+                        val javaBin = findJavaBinary()
+                        if (javaBin == null) {
+                            pushLog(serverId, "WARN [Native] No JRE in files/runtime — install OpenJDK (MineServe Phase B)")
+                            android.os.Handler(appContext.mainLooper).post {
+                                result.success(
+                                    mapOf(
+                                        "ok" to false,
+                                        "mode" to "no_jre",
+                                        "message" to "Place JRE at files/runtime/jdk/bin/java",
+                                        "serverDir" to dir.absolutePath,
+                                        "jarPath" to jar.absolutePath
+                                    )
+                                )
+                            }
+                            return@execute
+                        }
+
+                        // stop old
+                        processes[serverId]?.destroy()
+
+                        val cmd = listOf(
+                            javaBin.absolutePath,
+                            "-Xms256M",
+                            "-Xmx${maxRamMb}M",
+                            "-jar",
+                            jar.absolutePath,
+                            "nogui"
+                        )
+                        pushLog(serverId, "INFO [Native] ${cmd.joinToString(" ")}")
+
+                        val pb = ProcessBuilder(cmd)
+                        pb.directory(dir)
+                        pb.redirectErrorStream(true)
+                        val proc = pb.start()
+                        processes[serverId] = proc
+
+                        executor.execute { streamProcess(serverId, proc) }
+
+                        android.os.Handler(appContext.mainLooper).post {
+                            result.success(
+                                mapOf(
+                                    "ok" to true,
+                                    "mode" to "java",
+                                    "serverDir" to dir.absolutePath
+                                )
+                            )
+                        }
+                    } catch (e: Exception) {
+                        pushLog(serverId, "ERROR [Native] ${e.message}")
+                        android.os.Handler(appContext.mainLooper).post {
+                            result.success(
+                                mapOf("ok" to false, "mode" to "error", "message" to e.message)
+                            )
+                        }
+                    }
+                }
             }
 
             "stopServer" -> {
@@ -178,19 +293,41 @@ class ServerHostPlugin : FlutterPlugin, MethodCallHandler {
             "getServerDir" -> {
                 val serverId = call.argument<String>("serverId")
                     ?: return result.error("ARG", "serverId", null)
-                val dir = File(appContext.filesDir, "servers/$serverId")
-                if (!dir.exists()) dir.mkdirs()
-                result.success(dir.absolutePath)
+                result.success(serverDir(serverId).absolutePath)
             }
+
+            "hasJava" -> result.success(findJavaBinary() != null)
 
             else -> result.notImplemented()
         }
+    }
+
+    private fun serverDir(serverId: String): File {
+        val dir = File(appContext.filesDir, "servers/$serverId")
+        if (!dir.exists()) dir.mkdirs()
+        return dir
     }
 
     private fun toolsDir(): File {
         val d = File(appContext.filesDir, "tools")
         if (!d.exists()) d.mkdirs()
         return d
+    }
+
+    /** files/runtime/jdk/bin/java or runtime/bin/java */
+    private fun findJavaBinary(): File? {
+        val candidates = listOf(
+            File(appContext.filesDir, "runtime/jdk/bin/java"),
+            File(appContext.filesDir, "runtime/bin/java"),
+            File(appContext.filesDir, "runtime/java")
+        )
+        for (f in candidates) {
+            if (f.exists()) {
+                f.setExecutable(true)
+                if (f.canExecute()) return f
+            }
+        }
+        return null
     }
 
     private fun findBoreBinary(): File? {
@@ -218,21 +355,16 @@ class ServerHostPlugin : FlutterPlugin, MethodCallHandler {
         val url =
             "https://github.com/ekzhang/bore/releases/download/v$boreVersion/$asset"
 
-        pushLog(serverId, "INFO [Tunnel] Downloading bore (MineServe-style)...")
-        pushLog(serverId, "INFO [Tunnel] $url")
-
+        pushLog(serverId, "INFO [Tunnel] Downloading bore...")
         val tarGz = File(toolsDir(), asset)
         downloadFile(url, tarGz)
 
-        val extract = ProcessBuilder(
+        ProcessBuilder(
             "tar", "-xzf", tarGz.absolutePath, "-C", toolsDir().absolutePath
-        ).redirectErrorStream(true).start()
-        extract.waitFor()
+        ).redirectErrorStream(true).start().waitFor()
 
         val binary = File(toolsDir(), "bore")
-        if (!binary.exists()) {
-            throw Exception("bore extract failed")
-        }
+        if (!binary.exists()) throw Exception("bore extract failed")
         binary.setExecutable(true)
         tarGz.delete()
         pushLog(serverId, "INFO [Tunnel] bore installed")
@@ -240,9 +372,10 @@ class ServerHostPlugin : FlutterPlugin, MethodCallHandler {
 
     private fun downloadFile(urlStr: String, out: File) {
         val conn = URL(urlStr).openConnection() as HttpURLConnection
-        conn.connectTimeout = 30000
-        conn.readTimeout = 60000
+        conn.connectTimeout = 60000
+        conn.readTimeout = 300000
         conn.instanceFollowRedirects = true
+        conn.setRequestProperty("User-Agent", "CS-LAUNCHER-HOSTING")
         conn.connect()
         if (conn.responseCode !in 200..299) {
             throw Exception("Download failed HTTP ${conn.responseCode}")
@@ -307,6 +440,17 @@ class ServerHostPlugin : FlutterPlugin, MethodCallHandler {
         }
 
         return publicAddress
+    }
+
+    private fun streamProcess(serverId: String, proc: Process) {
+        try {
+            val reader = BufferedReader(InputStreamReader(proc.inputStream))
+            var line: String?
+            while (reader.readLine().also { line = it } != null) {
+                pushLog(serverId, line ?: "")
+            }
+        } catch (_: Exception) {
+        }
     }
 
     private fun stopBore(serverId: String) {
