@@ -1,8 +1,6 @@
 package com.cslauncher.hosting
 
 import android.content.Context
-import android.content.Intent
-import android.os.Build
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
@@ -12,28 +10,15 @@ import io.flutter.plugin.common.MethodChannel.Result
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.regex.Pattern
 
 /**
- * Native skeleton for real Minecraft server hosting on Android.
- *
- * MethodChannel: com.cslauncher.hosting/server
- * EventChannel:  com.cslauncher.hosting/console
- *
- * Flutter calls:
- *  - startServer(serverId, jarPath, maxRamMb, port, workingDir)
- *  - stopServer(serverId)
- *  - sendCommand(serverId, command)
- *  - isRunning(serverId)
- *
- * Console lines are pushed on the EventChannel.
- *
- * TODO before production:
- *  - Bundle or download a JRE (e.g. Liberica / Termux proot)
- *  - Run ProcessBuilder with java -Xmx... -jar server.jar nogui
- *  - Start ForegroundService so process survives background
- *  - Start bore client for public tunnel
- *  - Battery optimization exemption UX
+ * Native bridge for CS LAUNCHER:
+ * - startTunnel runs bore client to bore.pub
+ * - Parses listening at host:port
+ * Binary: filesDir/tools/bore — see docs/BORE_CONNECT.md
  */
 class ServerHostPlugin : FlutterPlugin, MethodCallHandler {
     private lateinit var channel: MethodChannel
@@ -41,8 +26,14 @@ class ServerHostPlugin : FlutterPlugin, MethodCallHandler {
     private var eventSink: EventChannel.EventSink? = null
     private lateinit var appContext: Context
 
-    private val processes = mutableMapOf<String, Process>()
+    private val processes = ConcurrentHashMap<String, Process>()
+    private val boreProcesses = ConcurrentHashMap<String, Process>()
     private val executor = Executors.newCachedThreadPool()
+
+    private val addressPattern = Pattern.compile(
+        "listening at\\s+([\\w.\\-]+):(\\d+)",
+        Pattern.CASE_INSENSITIVE
+    )
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         appContext = binding.applicationContext
@@ -68,41 +59,82 @@ class ServerHostPlugin : FlutterPlugin, MethodCallHandler {
 
     override fun onMethodCall(call: MethodCall, result: Result) {
         when (call.method) {
+            "startTunnel" -> {
+                val serverId = call.argument<String>("serverId")
+                    ?: return result.error("ARG", "serverId", null)
+                val localPort = call.argument<Int>("localPort") ?: 25565
+                val toHost = call.argument<String>("toHost") ?: "bore.pub"
+                val secret = call.argument<String>("secret")
+
+                executor.execute {
+                    try {
+                        val addr = startBore(serverId, localPort, toHost, secret)
+                        android.os.Handler(appContext.mainLooper).post {
+                            if (addr != null) {
+                                result.success(
+                                    mapOf(
+                                        "ok" to true,
+                                        "publicAddress" to addr,
+                                        "mode" to "bore"
+                                    )
+                                )
+                            } else {
+                                result.success(
+                                    mapOf(
+                                        "ok" to false,
+                                        "mode" to "missing_binary",
+                                        "message" to "bore binary not found at files/tools/bore"
+                                    )
+                                )
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.os.Handler(appContext.mainLooper).post {
+                            result.success(
+                                mapOf(
+                                    "ok" to false,
+                                    "mode" to "error",
+                                    "message" to (e.message ?: "tunnel failed")
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
+            "stopTunnel" -> {
+                val serverId = call.argument<String>("serverId")
+                    ?: return result.error("ARG", "serverId", null)
+                stopBore(serverId)
+                pushLog(serverId, "INFO [Tunnel] Closed")
+                result.success(true)
+            }
+
+            "hasBoreBinary" -> result.success(findBoreBinary() != null)
+
             "startServer" -> {
-                val serverId = call.argument<String>("serverId") ?: return result.error("ARG", "serverId required", null)
-                val jarPath = call.argument<String>("jarPath") ?: return result.error("ARG", "jarPath required", null)
-                val maxRamMb = call.argument<Int>("maxRamMb") ?: 1024
-                val port = call.argument<Int>("port") ?: 25565
-                val workingDir = call.argument<String>("workingDir") ?: return result.error("ARG", "workingDir required", null)
-
-                // Skeleton: log intent; real impl starts ProcessBuilder
-                pushLog(serverId, "INFO [Native] startServer requested")
-                pushLog(serverId, "INFO [Native] jar=$jarPath ram=${maxRamMb}MB port=$port")
-                pushLog(serverId, "INFO [Native] workDir=$workingDir")
-                pushLog(serverId, "WARN [Native] JRE not embedded yet — simulation only on device")
-
-                // Placeholder so Flutter can treat as "started" in hybrid mode
-                result.success(mapOf(
-                    "ok" to true,
-                    "mode" to "skeleton",
-                    "message" to "Native skeleton active. Embed JRE + ProcessBuilder next."
-                ))
+                val serverId = call.argument<String>("serverId")
+                    ?: return result.error("ARG", "serverId", null)
+                pushLog(serverId, "INFO [Native] startServer skeleton")
+                result.success(mapOf("ok" to true, "mode" to "skeleton"))
             }
 
             "stopServer" -> {
-                val serverId = call.argument<String>("serverId") ?: return result.error("ARG", "serverId required", null)
+                val serverId = call.argument<String>("serverId")
+                    ?: return result.error("ARG", "serverId", null)
                 processes[serverId]?.destroy()
                 processes.remove(serverId)
-                pushLog(serverId, "INFO [Native] stopServer")
+                stopBore(serverId)
                 result.success(true)
             }
 
             "sendCommand" -> {
-                val serverId = call.argument<String>("serverId") ?: return result.error("ARG", "serverId required", null)
-                val command = call.argument<String>("command") ?: return result.error("ARG", "command required", null)
+                val serverId = call.argument<String>("serverId")
+                    ?: return result.error("ARG", "serverId", null)
+                val command = call.argument<String>("command")
+                    ?: return result.error("ARG", "command", null)
                 val proc = processes[serverId]
                 if (proc == null) {
-                    pushLog(serverId, "WARN [Native] no process for $serverId (skeleton)")
                     result.success(false)
                     return
                 }
@@ -121,7 +153,8 @@ class ServerHostPlugin : FlutterPlugin, MethodCallHandler {
             }
 
             "getServerDir" -> {
-                val serverId = call.argument<String>("serverId") ?: return result.error("ARG", "serverId required", null)
+                val serverId = call.argument<String>("serverId")
+                    ?: return result.error("ARG", "serverId", null)
                 val dir = File(appContext.filesDir, "servers/$serverId")
                 if (!dir.exists()) dir.mkdirs()
                 result.success(dir.absolutePath)
@@ -131,34 +164,92 @@ class ServerHostPlugin : FlutterPlugin, MethodCallHandler {
         }
     }
 
+    private fun findBoreBinary(): File? {
+        val tools = File(appContext.filesDir, "tools/bore")
+        if (tools.exists()) {
+            tools.setExecutable(true)
+            if (tools.canExecute()) return tools
+        }
+        return null
+    }
+
+    private fun startBore(
+        serverId: String,
+        localPort: Int,
+        toHost: String,
+        secret: String?
+    ): String? {
+        stopBore(serverId)
+        val binary = findBoreBinary()
+        if (binary == null) {
+            pushLog(serverId, "WARN [Tunnel] bore binary not found")
+            pushLog(serverId, "INFO [Tunnel] See docs/BORE_CONNECT.md")
+            return null
+        }
+
+        val cmd = mutableListOf(
+            binary.absolutePath,
+            "local",
+            localPort.toString(),
+            "--to",
+            toHost
+        )
+        if (!secret.isNullOrBlank()) {
+            cmd.add("--secret")
+            cmd.add(secret)
+        }
+
+        pushLog(serverId, "INFO [Tunnel] Starting bore → $toHost")
+
+        val pb = ProcessBuilder(cmd)
+        pb.redirectErrorStream(true)
+        val proc = pb.start()
+        boreProcesses[serverId] = proc
+
+        var publicAddress: String? = null
+        val deadline = System.currentTimeMillis() + 15000L
+        val reader = BufferedReader(InputStreamReader(proc.inputStream))
+
+        while (System.currentTimeMillis() < deadline) {
+            val line = reader.readLine() ?: break
+            pushLog(serverId, "INFO [bore] $line")
+            val m = addressPattern.matcher(line)
+            if (m.find()) {
+                publicAddress = m.group(1) + ":" + m.group(2)
+                pushLog(serverId, "INFO [Tunnel] Public: $publicAddress")
+                break
+            }
+        }
+
+        executor.execute {
+            try {
+                var line: String?
+                while (reader.readLine().also { line = it } != null) {
+                    pushLog(serverId, "INFO [bore] $line")
+                }
+            } catch (_: Exception) {
+            }
+        }
+
+        return publicAddress
+    }
+
+    private fun stopBore(serverId: String) {
+        boreProcesses[serverId]?.destroy()
+        boreProcesses.remove(serverId)
+    }
+
     private fun pushLog(serverId: String, line: String) {
-        eventSink?.success(mapOf(
-            "serverId" to serverId,
-            "line" to line
-        ))
+        val sink = eventSink ?: return
+        android.os.Handler(appContext.mainLooper).post {
+            sink.success(mapOf("serverId" to serverId, "line" to line))
+        }
     }
 
     private fun stopAll() {
         processes.values.forEach { it.destroy() }
         processes.clear()
+        boreProcesses.values.forEach { it.destroy() }
+        boreProcesses.clear()
     }
-
-    /**
-     * Example of how real start will look (not called until JRE is ready):
-     *
-     * val cmd = listOf(
-     *   javaBinary,
-     *   "-Xms512M",
-     *   "-Xmx${maxRamMb}M",
-     *   "-jar", jarPath,
-     *   "nogui"
-     * )
-     * val pb = ProcessBuilder(cmd)
-     * pb.directory(File(workingDir))
-     * pb.redirectErrorStream(true)
-     * val process = pb.start()
-     * processes[serverId] = process
-     * executor.execute { readStdout(serverId, process) }
-     * // also start ForegroundService + bore tunnel
-     */
 }
