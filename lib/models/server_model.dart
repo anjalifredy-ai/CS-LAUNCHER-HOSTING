@@ -8,8 +8,8 @@ enum ServerSoftware {
   neoforge,
   forge,
   vanilla,
-  powernukkitx, // Native Bedrock
-  pumpkin, // Fast low-RAM Java alternative
+  powernukkitx,
+  pumpkin,
 }
 
 enum ServerStatus {
@@ -30,11 +30,17 @@ enum GameTemplate {
   caveblock,
 }
 
-/// What platforms players can join from
 enum PlatformType {
-  java, // Java Edition only
-  bedrock, // Bedrock Edition only (PowerNukkitX etc.)
-  both, // Java + Bedrock via Geyser/Floodgate
+  java,
+  bedrock,
+  both,
+}
+
+/// Who provides the public tunnel
+enum TunnelProvider {
+  csTunnel, // Our own free network (self-hosted bore)
+  borePub, // Public bore.pub
+  custom, // User-defined host
 }
 
 class ServerModel {
@@ -63,19 +69,17 @@ class ServerModel {
   DateTime? lastStarted;
   String motd;
 
-  // Platform
   PlatformType platformType;
-
-  // Anvil-style extras
   bool whitelistEnabled;
   GameTemplate template;
-  String tunnelRegion; // EU, US, AS etc.
+  String tunnelRegion;
 
-  // World & Files
-  String? worldPath; // path to imported world folder / zip
+  // Tunnel
+  TunnelProvider tunnelProvider;
+  String tunnelHost; // e.g. tunnel.cs-launcher.xyz or bore.pub
+
+  String? worldPath;
   bool hasCustomWorld;
-
-  // AI Builder
   bool aiBuilderEnabled;
 
   ServerModel({
@@ -107,16 +111,16 @@ class ServerModel {
     this.whitelistEnabled = false,
     this.template = GameTemplate.none,
     this.tunnelRegion = 'EU',
+    this.tunnelProvider = TunnelProvider.csTunnel,
+    this.tunnelHost = 'tunnel.cs-launcher.xyz',
     this.worldPath,
     this.hasCustomWorld = false,
     this.aiBuilderEnabled = false,
   }) : createdAt = createdAt ?? DateTime.now();
 
-  /// Convenience: true when Bedrock players can join
   bool get bedrockSupport =>
       platformType == PlatformType.bedrock || platformType == PlatformType.both;
 
-  /// Convenience: true when Java players can join
   bool get javaSupport =>
       platformType == PlatformType.java || platformType == PlatformType.both;
 
@@ -151,6 +155,17 @@ class ServerModel {
         return 'Bedrock';
       case PlatformType.both:
         return 'Java + Bedrock';
+    }
+  }
+
+  String get tunnelProviderLabel {
+    switch (tunnelProvider) {
+      case TunnelProvider.csTunnel:
+        return 'CS Tunnel (Free)';
+      case TunnelProvider.borePub:
+        return 'bore.pub';
+      case TunnelProvider.custom:
+        return 'Custom';
     }
   }
 
@@ -214,6 +229,18 @@ class ServerModel {
     }
   }
 
+  /// Host used when opening a tunnel
+  String get effectiveTunnelHost {
+    switch (tunnelProvider) {
+      case TunnelProvider.csTunnel:
+        return tunnelHost.isNotEmpty ? tunnelHost : 'tunnel.cs-launcher.xyz';
+      case TunnelProvider.borePub:
+        return 'bore.pub';
+      case TunnelProvider.custom:
+        return tunnelHost.isNotEmpty ? tunnelHost : 'bore.pub';
+    }
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -244,6 +271,8 @@ class ServerModel {
       'whitelistEnabled': whitelistEnabled,
       'template': template.name,
       'tunnelRegion': tunnelRegion,
+      'tunnelProvider': tunnelProvider.name,
+      'tunnelHost': tunnelHost,
       'worldPath': worldPath,
       'hasCustomWorld': hasCustomWorld,
       'aiBuilderEnabled': aiBuilderEnabled,
@@ -251,7 +280,6 @@ class ServerModel {
   }
 
   factory ServerModel.fromJson(Map<String, dynamic> json) {
-    // Backward compat for old bedrockSupport flag
     PlatformType platform = PlatformType.java;
     if (json['platformType'] != null) {
       platform = PlatformType.values.firstWhere(
@@ -260,6 +288,14 @@ class ServerModel {
       );
     } else if (json['bedrockSupport'] == true) {
       platform = PlatformType.both;
+    }
+
+    TunnelProvider tp = TunnelProvider.csTunnel;
+    if (json['tunnelProvider'] != null) {
+      tp = TunnelProvider.values.firstWhere(
+        (e) => e.name == json['tunnelProvider'],
+        orElse: () => TunnelProvider.csTunnel,
+      );
     }
 
     return ServerModel(
@@ -302,6 +338,8 @@ class ServerModel {
         orElse: () => GameTemplate.none,
       ),
       tunnelRegion: json['tunnelRegion'] ?? 'EU',
+      tunnelProvider: tp,
+      tunnelHost: json['tunnelHost'] ?? 'tunnel.cs-launcher.xyz',
       worldPath: json['worldPath'],
       hasCustomWorld: json['hasCustomWorld'] ?? false,
       aiBuilderEnabled: json['aiBuilderEnabled'] ?? false,
