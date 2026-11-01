@@ -74,12 +74,11 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // GENERAL PROPERTIES
+          // GENERAL
           _SectionHeader(title: 'GENERAL PROPERTIES', icon: Icons.settings),
           const SizedBox(height: 10),
           _Card(
             children: [
-              // Server Icon
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: Container(
@@ -90,20 +89,16 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Center(
-                    child: Text(
-                      'CS',
-                      style: TextStyle(
-                        color: AppTheme.primaryGreen,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
+                    child: Text('CS',
+                        style: TextStyle(
+                            color: AppTheme.primaryGreen,
+                            fontWeight: FontWeight.w800)),
                   ),
                 ),
                 title: const Text('Server Icon'),
                 subtitle: const Text('Using default icon'),
                 trailing: TextButton(
                   onPressed: () {
-                    // TODO: Image picker
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Icon picker coming soon')),
                     );
@@ -112,17 +107,13 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
                 ),
               ),
               const Divider(height: 24),
-              // Name
               Text('Server Name', style: _labelStyle),
               const SizedBox(height: 6),
               TextField(
                 controller: _nameController,
-                decoration: const InputDecoration(
-                  hintText: 'My Awesome Server',
-                ),
+                decoration: const InputDecoration(hintText: 'My Awesome Server'),
               ),
               const SizedBox(height: 16),
-              // MOTD / Description
               Text('MOTD / Description', style: _labelStyle),
               const SizedBox(height: 6),
               TextField(
@@ -132,6 +123,49 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
                   hintText: 'Powered with ❤️ by CS LAUNCHER',
                 ),
               ),
+            ],
+          ),
+
+          const SizedBox(height: 20),
+
+          // PLATFORM
+          _SectionHeader(title: 'PLATFORM', icon: Icons.devices),
+          const SizedBox(height: 10),
+          _Card(
+            children: [
+              Text('Who can join?', style: _labelStyle),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  _PlatformChip(
+                    label: 'Java',
+                    selected: _server.platformType == PlatformType.java,
+                    onTap: () => setState(() => _server.platformType = PlatformType.java),
+                  ),
+                  const SizedBox(width: 8),
+                  _PlatformChip(
+                    label: 'Bedrock',
+                    selected: _server.platformType == PlatformType.bedrock,
+                    onTap: () => setState(() {
+                      _server.platformType = PlatformType.bedrock;
+                      _server.software = ServerSoftware.powernukkitx;
+                    }),
+                  ),
+                  const SizedBox(width: 8),
+                  _PlatformChip(
+                    label: 'Both',
+                    selected: _server.platformType == PlatformType.both,
+                    onTap: () => setState(() => _server.platformType = PlatformType.both),
+                  ),
+                ],
+              ),
+              if (_server.platformType == PlatformType.both) ...[
+                const SizedBox(height: 10),
+                Text(
+                  'Geyser + Floodgate will be used for cross-play.',
+                  style: GoogleFonts.inter(fontSize: 12, color: AppTheme.textMuted),
+                ),
+              ],
             ],
           ),
 
@@ -166,15 +200,8 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
                 decoration: const InputDecoration(),
                 dropdownColor: AppTheme.surface,
                 items: const [
-                  '1.21.3',
-                  '1.21.1',
-                  '1.21',
-                  '1.20.6',
-                  '1.20.4',
-                  '1.20.1',
-                  '1.19.4',
-                  '1.18.2',
-                  '1.16.5',
+                  '1.21.3', '1.21.1', '1.21', '1.20.6', '1.20.4',
+                  '1.20.1', '1.19.4', '1.18.2', '1.16.5',
                 ].map((v) {
                   return DropdownMenuItem(
                     value: v,
@@ -183,6 +210,20 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
                 }).toList(),
                 onChanged: (v) {
                   if (v != null) setState(() => _server.version = v);
+                },
+              ),
+              const SizedBox(height: 16),
+              Text('Tunnel Region', style: _labelStyle),
+              const SizedBox(height: 6),
+              DropdownButtonFormField<String>(
+                value: _server.tunnelRegion,
+                decoration: const InputDecoration(),
+                dropdownColor: AppTheme.surface,
+                items: const ['EU', 'US', 'AS', 'Auto']
+                    .map((r) => DropdownMenuItem(value: r, child: Text(r)))
+                    .toList(),
+                onChanged: (v) {
+                  if (v != null) setState(() => _server.tunnelRegion = v);
                 },
               ),
             ],
@@ -196,78 +237,35 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
           _Card(
             children: [
               Text(
-                'High view distance increases memory overhead and network latency (rubberbanding). It is recommended to keep the default values.',
-                style: GoogleFonts.inter(
-                  fontSize: 12,
-                  color: AppTheme.textMuted,
-                  height: 1.4,
-                ),
+                'High view distance increases RAM and can cause lag on phones. Keep defaults if unsure.',
+                style: GoogleFonts.inter(fontSize: 12, color: AppTheme.textMuted, height: 1.4),
               ),
               const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('View Distance', style: _labelStyle),
-                  Text(
-                    '${_server.viewDistance} chunks',
-                    style: GoogleFonts.inter(
-                      color: AppTheme.primaryGreen,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-              Slider(
+              _SliderRow(
+                label: 'View Distance',
+                valueLabel: '${_server.viewDistance} chunks',
                 value: _server.viewDistance.toDouble(),
                 min: 2,
                 max: 32,
                 divisions: 30,
-                label: '${_server.viewDistance}',
                 onChanged: (v) => setState(() => _server.viewDistance = v.round()),
               ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('Simulation Distance', style: _labelStyle),
-                  Text(
-                    '${_server.simulationDistance} chunks',
-                    style: GoogleFonts.inter(
-                      color: AppTheme.primaryGreen,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-              Slider(
+              _SliderRow(
+                label: 'Simulation Distance',
+                valueLabel: '${_server.simulationDistance} chunks',
                 value: _server.simulationDistance.toDouble(),
                 min: 2,
                 max: 32,
                 divisions: 30,
-                label: '${_server.simulationDistance}',
-                onChanged: (v) =>
-                    setState(() => _server.simulationDistance = v.round()),
+                onChanged: (v) => setState(() => _server.simulationDistance = v.round()),
               ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('Max RAM', style: _labelStyle),
-                  Text(
-                    '${_server.maxRamGb.toStringAsFixed(1)} GB',
-                    style: GoogleFonts.inter(
-                      color: AppTheme.primaryGreen,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-              Slider(
+              _SliderRow(
+                label: 'Max RAM',
+                valueLabel: '${_server.maxRamGb.toStringAsFixed(1)} GB',
                 value: _server.maxRamGb,
                 min: 0.5,
                 max: 8.0,
                 divisions: 15,
-                label: '${_server.maxRamGb.toStringAsFixed(1)} GB',
                 onChanged: (v) => setState(() => _server.maxRamGb = v),
               ),
             ],
@@ -282,13 +280,19 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
             children: [
               _SwitchRow(
                 title: 'Online Mode',
-                subtitle: 'Require Mojang authentication',
+                subtitle: 'Require Mojang / Microsoft accounts',
                 value: _server.onlineMode,
                 onChanged: (v) => setState(() => _server.onlineMode = v),
               ),
               _SwitchRow(
+                title: 'Whitelist',
+                subtitle: 'Only allowed players can join',
+                value: _server.whitelistEnabled,
+                onChanged: (v) => setState(() => _server.whitelistEnabled = v),
+              ),
+              _SwitchRow(
                 title: 'Allow Skins',
-                subtitle: 'Players can use custom skins',
+                subtitle: 'Custom player skins',
                 value: _server.allowSkins,
                 onChanged: (v) => setState(() => _server.allowSkins = v),
               ),
@@ -300,9 +304,15 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
               ),
               _SwitchRow(
                 title: 'Hardcore',
-                subtitle: 'Players are banned on death',
+                subtitle: 'Ban on death',
                 value: _server.hardcore,
                 onChanged: (v) => setState(() => _server.hardcore = v),
+              ),
+              _SwitchRow(
+                title: 'AI Builder',
+                subtitle: 'Describe builds in chat — AI places blocks',
+                value: _server.aiBuilderEnabled,
+                onChanged: (v) => setState(() => _server.aiBuilderEnabled = v),
               ),
               const SizedBox(height: 8),
               Text('Difficulty', style: _labelStyle),
@@ -333,32 +343,58 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
                 },
               ),
               const SizedBox(height: 16),
-              Text('Max Players', style: _labelStyle),
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  Expanded(
-                    child: Slider(
-                      value: _server.maxPlayers.toDouble(),
-                      min: 1,
-                      max: 100,
-                      divisions: 99,
-                      label: '${_server.maxPlayers}',
-                      onChanged: (v) =>
-                          setState(() => _server.maxPlayers = v.round()),
+              _SliderRow(
+                label: 'Max Players',
+                valueLabel: '${_server.maxPlayers}',
+                value: _server.maxPlayers.toDouble(),
+                min: 1,
+                max: 100,
+                divisions: 99,
+                onChanged: (v) => setState(() => _server.maxPlayers = v.round()),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 20),
+
+          // DANGER
+          _SectionHeader(title: 'DANGER ZONE', icon: Icons.warning_amber),
+          const SizedBox(height: 10),
+          _Card(
+            children: [
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text('Delete Server',
+                    style: GoogleFonts.inter(color: AppTheme.error, fontWeight: FontWeight.w600)),
+                subtitle: const Text('Permanently remove this server and its data'),
+                trailing: const Icon(Icons.delete_outline, color: AppTheme.error),
+                onTap: () async {
+                  final ok = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      backgroundColor: AppTheme.surface,
+                      title: const Text('Delete server?'),
+                      content: Text('"${_server.name}" will be permanently deleted.'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text('Cancel'),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: Text('Delete',
+                              style: TextStyle(color: AppTheme.error)),
+                        ),
+                      ],
                     ),
-                  ),
-                  SizedBox(
-                    width: 40,
-                    child: Text(
-                      '${_server.maxPlayers}',
-                      style: GoogleFonts.inter(
-                        color: AppTheme.primaryGreen,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
+                  );
+                  if (ok == true && mounted) {
+                    final provider =
+                        Provider.of<ServerProvider>(context, listen: false);
+                    await provider.deleteServer(_server.id);
+                    if (mounted) Navigator.pop(context);
+                  }
+                },
               ),
             ],
           ),
@@ -385,8 +421,10 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
         return 'Forge';
       case ServerSoftware.vanilla:
         return 'Vanilla';
-      case ServerSoftware.optifine:
-        return 'OptiFine';
+      case ServerSoftware.powernukkitx:
+        return 'PowerNukkitX (Bedrock)';
+      case ServerSoftware.pumpkin:
+        return 'Pumpkin (Low RAM)';
     }
   }
 
@@ -395,6 +433,41 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
         fontWeight: FontWeight.w500,
         color: AppTheme.textSecondary,
       );
+}
+
+class _PlatformChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _PlatformChip({required this.label, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: selected ? AppTheme.primaryGreen.withOpacity(0.15) : AppTheme.surfaceLight,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected ? AppTheme.primaryGreen : Colors.transparent,
+            ),
+          ),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              color: selected ? AppTheme.primaryGreen : AppTheme.textSecondary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _SectionHeader extends StatelessWidget {
@@ -466,29 +539,65 @@ class _SwitchRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                Text(
-                  subtitle,
-                  style: GoogleFonts.inter(
-                    fontSize: 12,
-                    color: AppTheme.textMuted,
-                  ),
-                ),
+                Text(title,
+                    style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w500)),
+                Text(subtitle,
+                    style: GoogleFonts.inter(fontSize: 12, color: AppTheme.textMuted)),
               ],
             ),
           ),
-          Switch(
-            value: value,
-            onChanged: onChanged,
-          ),
+          Switch(value: value, onChanged: onChanged),
         ],
       ),
+    );
+  }
+}
+
+class _SliderRow extends StatelessWidget {
+  final String label;
+  final String valueLabel;
+  final double value;
+  final double min;
+  final double max;
+  final int divisions;
+  final ValueChanged<double> onChanged;
+
+  const _SliderRow({
+    required this.label,
+    required this.valueLabel,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.divisions,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label,
+                style: GoogleFonts.inter(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: AppTheme.textSecondary)),
+            Text(valueLabel,
+                style: GoogleFonts.inter(
+                    color: AppTheme.primaryGreen, fontWeight: FontWeight.w600)),
+          ],
+        ),
+        Slider(
+          value: value,
+          min: min,
+          max: max,
+          divisions: divisions,
+          label: valueLabel,
+          onChanged: onChanged,
+        ),
+      ],
     );
   }
 }
