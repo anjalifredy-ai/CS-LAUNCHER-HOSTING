@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
 
-/// Bridge to Android — real bore.pub when binary is installed.
+/// Android native bridge — MineServe-style jar + bore + java.
 class NativeHostService {
   static const _channel = MethodChannel('com.cslauncher.hosting/server');
   static const _console = EventChannel('com.cslauncher.hosting/console');
@@ -11,7 +11,26 @@ class NativeHostService {
         .map((e) => Map<dynamic, dynamic>.from(e as Map));
   }
 
-  /// Real tunnel: bore local → bore.pub (or custom host)
+  /// Download Paper jar + eula into files/servers/<id>/
+  static Future<Map<String, dynamic>> prepareServer({
+    required String serverId,
+    required String jarUrl,
+    String version = '1.21.1',
+  }) async {
+    try {
+      final result = await _channel.invokeMethod<Map>('prepareServer', {
+        'serverId': serverId,
+        'jarUrl': jarUrl,
+        'version': version,
+      });
+      return Map<String, dynamic>.from(result ?? {});
+    } on MissingPluginException {
+      return {'ok': false, 'message': 'Android only'};
+    } on PlatformException catch (e) {
+      return {'ok': false, 'message': e.message};
+    }
+  }
+
   static Future<Map<String, dynamic>> startTunnel({
     required String serverId,
     int localPort = 25565,
@@ -27,11 +46,7 @@ class NativeHostService {
       });
       return Map<String, dynamic>.from(result ?? {});
     } on MissingPluginException {
-      return {
-        'ok': false,
-        'mode': 'unsupported',
-        'message': 'Only on Android device build',
-      };
+      return {'ok': false, 'mode': 'unsupported'};
     } on PlatformException catch (e) {
       return {'ok': false, 'mode': 'error', 'message': e.message};
     }
@@ -47,28 +62,18 @@ class NativeHostService {
     }
   }
 
-  static Future<bool> hasBoreBinary() async {
-    try {
-      return await _channel.invokeMethod<bool>('hasBoreBinary') ?? false;
-    } catch (_) {
-      return false;
-    }
-  }
-
   static Future<Map<String, dynamic>> startServer({
     required String serverId,
-    required String jarPath,
-    required int maxRamMb,
-    required int port,
-    required String workingDir,
+    String? jarPath,
+    int maxRamMb = 1024,
+    String? workingDir,
   }) async {
     try {
       final result = await _channel.invokeMethod<Map>('startServer', {
         'serverId': serverId,
-        'jarPath': jarPath,
+        if (jarPath != null) 'jarPath': jarPath,
         'maxRamMb': maxRamMb,
-        'port': port,
-        'workingDir': workingDir,
+        if (workingDir != null) 'workingDir': workingDir,
       });
       return Map<String, dynamic>.from(result ?? {});
     } on MissingPluginException {
@@ -83,6 +88,14 @@ class NativeHostService {
       return await _channel
               .invokeMethod<bool>('stopServer', {'serverId': serverId}) ??
           false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<bool> hasJava() async {
+    try {
+      return await _channel.invokeMethod<bool>('hasJava') ?? false;
     } catch (_) {
       return false;
     }
