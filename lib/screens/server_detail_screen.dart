@@ -7,6 +7,8 @@ import '../providers/server_provider.dart';
 import '../models/server_model.dart';
 import 'server_settings_screen.dart';
 import 'plugins_screen.dart';
+import 'ai_builder_screen.dart';
+import 'file_browser_screen.dart';
 
 class ServerDetailScreen extends StatefulWidget {
   final String serverId;
@@ -73,7 +75,36 @@ class _ServerDetailScreenState extends State<ServerDetailScreen>
           appBar: AppBar(
             title: Text(server.name),
             actions: [
-              // Plugins button
+              // AI Builder
+              IconButton(
+                icon: const Icon(Icons.smart_toy_outlined),
+                tooltip: 'AI Builder',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => AiBuilderScreen(serverId: server.id),
+                    ),
+                  );
+                },
+              ),
+              // Files
+              IconButton(
+                icon: const Icon(Icons.folder_outlined),
+                tooltip: 'Files',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => FileBrowserScreen(
+                        serverId: server.id,
+                        serverName: server.name,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              // Plugins
               IconButton(
                 icon: Badge(
                   isLabelVisible: installedCount > 0,
@@ -90,17 +121,17 @@ class _ServerDetailScreenState extends State<ServerDetailScreen>
                   );
                 },
               ),
-              // Quick Start / Stop
+              // Start / Stop
               if (isOnline)
                 IconButton(
                   icon: const Icon(Icons.stop_circle_outlined, color: AppTheme.error),
-                  tooltip: 'Stop Server',
+                  tooltip: 'Stop',
                   onPressed: () => provider.stopServer(server.id),
                 )
               else
                 IconButton(
                   icon: const Icon(Icons.play_circle_outline, color: AppTheme.primaryGreen),
-                  tooltip: 'Start Server',
+                  tooltip: 'Start',
                   onPressed: () => provider.startServer(server.id),
                 ),
               IconButton(
@@ -130,7 +161,7 @@ class _ServerDetailScreenState extends State<ServerDetailScreen>
           body: TabBarView(
             controller: _tabController,
             children: [
-              // ===== CONSOLE TAB =====
+              // CONSOLE
               Column(
                 children: [
                   Container(
@@ -191,9 +222,7 @@ class _ServerDetailScreenState extends State<ServerDetailScreen>
                     padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
                     decoration: const BoxDecoration(
                       color: AppTheme.surface,
-                      border: Border(
-                        top: BorderSide(color: AppTheme.surfaceLight),
-                      ),
+                      border: Border(top: BorderSide(color: AppTheme.surfaceLight)),
                     ),
                     child: SafeArea(
                       top: false,
@@ -240,9 +269,7 @@ class _ServerDetailScreenState extends State<ServerDetailScreen>
                           const SizedBox(width: 8),
                           Container(
                             decoration: BoxDecoration(
-                              color: isOnline
-                                  ? AppTheme.primaryGreen
-                                  : AppTheme.surfaceLight,
+                              color: isOnline ? AppTheme.primaryGreen : AppTheme.surfaceLight,
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: IconButton(
@@ -269,10 +296,7 @@ class _ServerDetailScreenState extends State<ServerDetailScreen>
                 ],
               ),
 
-              // ===== PLAYERS TAB =====
               _PlayersTab(serverId: server.id, server: server),
-
-              // ===== INFO TAB =====
               _InfoTab(server: server, provider: provider),
             ],
           ),
@@ -335,31 +359,17 @@ class _PlayersTab extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text(
-                'Online Players',
-                style: GoogleFonts.inter(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+              Text('Online Players',
+                  style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w600)),
               const Spacer(),
-              Text(
-                '${players.length} / ${server.maxPlayers}',
-                style: GoogleFonts.inter(
-                  color: AppTheme.primaryGreen,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              Text('${players.length} / ${server.maxPlayers}',
+                  style: GoogleFonts.inter(
+                      color: AppTheme.primaryGreen, fontWeight: FontWeight.w700)),
             ],
           ),
           const SizedBox(height: 4),
-          Text(
-            'Tap the menu to OP / Kick / Ban players',
-            style: GoogleFonts.inter(
-              fontSize: 12,
-              color: AppTheme.textMuted,
-            ),
-          ),
+          Text('Tap menu to OP / Kick / Ban',
+              style: GoogleFonts.inter(fontSize: 12, color: AppTheme.textMuted)),
           const SizedBox(height: 16),
           if (players.isEmpty)
             Expanded(
@@ -367,7 +377,7 @@ class _PlayersTab extends StatelessWidget {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.people_outline, size: 48, color: AppTheme.textMuted),
+                    const Icon(Icons.people_outline, size: 48, color: AppTheme.textMuted),
                     const SizedBox(height: 12),
                     Text(
                       server.status == ServerStatus.online
@@ -398,10 +408,7 @@ class _PlayersTab extends StatelessWidget {
                         ),
                       ),
                     ),
-                    title: Text(
-                      name,
-                      style: GoogleFonts.inter(fontWeight: FontWeight.w600),
-                    ),
+                    title: Text(name, style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
                     subtitle: const Text('Online'),
                     trailing: PopupMenuButton<String>(
                       icon: const Icon(Icons.more_vert, size: 20),
@@ -409,9 +416,6 @@ class _PlayersTab extends StatelessWidget {
                         switch (value) {
                           case 'op':
                             provider.sendCommand(serverId, 'op $name');
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Opped $name')),
-                            );
                             break;
                           case 'deop':
                             provider.sendCommand(serverId, 'deop $name');
@@ -424,47 +428,11 @@ class _PlayersTab extends StatelessWidget {
                             break;
                         }
                       },
-                      itemBuilder: (context) => [
-                        const PopupMenuItem(
-                          value: 'op',
-                          child: Row(
-                            children: [
-                              Icon(Icons.shield, size: 18, color: AppTheme.primaryGreen),
-                              SizedBox(width: 10),
-                              Text('Make OP'),
-                            ],
-                          ),
-                        ),
-                        const PopupMenuItem(
-                          value: 'deop',
-                          child: Row(
-                            children: [
-                              Icon(Icons.shield_outlined, size: 18),
-                              SizedBox(width: 10),
-                              Text('Remove OP'),
-                            ],
-                          ),
-                        ),
-                        const PopupMenuItem(
-                          value: 'kick',
-                          child: Row(
-                            children: [
-                              Icon(Icons.logout, size: 18, color: AppTheme.warning),
-                              SizedBox(width: 10),
-                              Text('Kick'),
-                            ],
-                          ),
-                        ),
-                        const PopupMenuItem(
-                          value: 'ban',
-                          child: Row(
-                            children: [
-                              Icon(Icons.block, size: 18, color: AppTheme.error),
-                              SizedBox(width: 10),
-                              Text('Ban'),
-                            ],
-                          ),
-                        ),
+                      itemBuilder: (context) => const [
+                        PopupMenuItem(value: 'op', child: Text('Make OP')),
+                        PopupMenuItem(value: 'deop', child: Text('Remove OP')),
+                        PopupMenuItem(value: 'kick', child: Text('Kick')),
+                        PopupMenuItem(value: 'ban', child: Text('Ban')),
                       ],
                     ),
                   );
@@ -489,15 +457,73 @@ class _InfoTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        // Quick actions
+        Row(
+          children: [
+            Expanded(
+              child: _QuickAction(
+                icon: Icons.smart_toy,
+                label: 'AI Builder',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => AiBuilderScreen(serverId: server.id),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _QuickAction(
+                icon: Icons.folder_outlined,
+                label: 'Files',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => FileBrowserScreen(
+                        serverId: server.id,
+                        serverName: server.name,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _QuickAction(
+                icon: Icons.extension,
+                label: 'Plugins',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PluginsScreen(serverId: server.id),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
         _InfoCard(
           title: 'Status',
           children: [
             _InfoRow('State', server.statusLabel, valueColor: server.statusColor),
+            _InfoRow('Platform', server.platformLabel),
             _InfoRow('Software', '${server.softwareLabel} ${server.version}'),
             _InfoRow('MOTD', server.motd),
             if (server.publicAddress != null)
               _InfoRow('Public Address', server.publicAddress!),
             _InfoRow('Port', '${server.port}'),
+            if (server.hasCustomWorld)
+              _InfoRow('World', server.worldPath ?? 'Imported'),
+            if (server.aiBuilderEnabled)
+              _InfoRow('AI Builder', 'Enabled'),
           ],
         ),
         const SizedBox(height: 12),
@@ -508,70 +534,64 @@ class _InfoTab extends StatelessWidget {
               'RAM',
               '${server.usedRamGb.toStringAsFixed(1)} / ${server.maxRamGb.toStringAsFixed(1)} GB',
             ),
-            if (server.status == ServerStatus.online)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: (server.usedRamGb / server.maxRamGb).clamp(0.0, 1.0),
-                    backgroundColor: AppTheme.surfaceLight,
-                    valueColor: const AlwaysStoppedAnimation(AppTheme.primaryGreen),
-                    minHeight: 8,
-                  ),
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        _InfoCard(
-          title: 'Plugins',
-          children: [
-            _InfoRow('Installed', '${installed.length}'),
-            if (installed.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(
-                  installed.map((p) => p.name).join(', '),
-                  style: GoogleFonts.inter(
-                    fontSize: 13,
-                    color: AppTheme.textSecondary,
-                  ),
-                ),
-              ),
+            _InfoRow('Players', '${server.onlinePlayers} / ${server.maxPlayers}'),
+            _InfoRow('View Distance', '${server.viewDistance} chunks'),
+            _InfoRow('Simulation', '${server.simulationDistance} chunks'),
           ],
         ),
         const SizedBox(height: 12),
         _InfoCard(
           title: 'Gameplay',
           children: [
-            _InfoRow('Max Players', '${server.maxPlayers}'),
-            _InfoRow('Online Mode', server.onlineMode ? 'ON' : 'OFF'),
-            _InfoRow('Allow Skins', server.allowSkins ? 'Yes' : 'No'),
-            _InfoRow('PVP', server.pvp ? 'Enabled' : 'Disabled'),
-            _InfoRow('Hardcore', server.hardcore ? 'Yes' : 'No'),
-            _InfoRow('Difficulty', server.difficulty),
             _InfoRow('Gamemode', server.gamemode),
-            _InfoRow('View Distance', '${server.viewDistance} chunks'),
+            _InfoRow('Difficulty', server.difficulty),
+            _InfoRow('Online Mode', server.onlineMode ? 'On' : 'Off'),
+            _InfoRow('PVP', server.pvp ? 'On' : 'Off'),
+            _InfoRow('Hardcore', server.hardcore ? 'On' : 'Off'),
+            _InfoRow('Whitelist', server.whitelistEnabled ? 'On' : 'Off'),
           ],
         ),
-        const SizedBox(height: 24),
-        if (server.status == ServerStatus.online)
-          ElevatedButton(
-            onPressed: () => provider.stopServer(server.id),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.error,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('STOP SERVER'),
-          )
-        else
-          ElevatedButton.icon(
-            onPressed: () => provider.startServer(server.id),
-            icon: const Icon(Icons.play_arrow),
-            label: const Text('START SERVER'),
+        if (installed.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _InfoCard(
+            title: 'Plugins (${installed.length})',
+            children: installed
+                .map((p) => _InfoRow(p.name, 'v${p.version}'))
+                .toList(),
           ),
+        ],
+        const SizedBox(height: 24),
       ],
+    );
+  }
+}
+
+class _QuickAction extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  const _QuickAction({required this.icon, required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppTheme.card,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          child: Column(
+            children: [
+              Icon(icon, color: AppTheme.primaryGreen, size: 22),
+              const SizedBox(height: 6),
+              Text(label,
+                  style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -585,7 +605,7 @@ class _InfoCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: AppTheme.card,
         borderRadius: BorderRadius.circular(14),
@@ -594,15 +614,15 @@ class _InfoCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            title.toUpperCase(),
+            title,
             style: GoogleFonts.inter(
               fontSize: 12,
               fontWeight: FontWeight.w700,
               color: AppTheme.primaryGreen,
-              letterSpacing: 0.8,
+              letterSpacing: 0.5,
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           ...children,
         ],
       ),
@@ -625,13 +645,8 @@ class _InfoRow extends StatelessWidget {
         children: [
           SizedBox(
             width: 110,
-            child: Text(
-              label,
-              style: GoogleFonts.inter(
-                fontSize: 13,
-                color: AppTheme.textMuted,
-              ),
-            ),
+            child: Text(label,
+                style: GoogleFonts.inter(fontSize: 13, color: AppTheme.textMuted)),
           ),
           Expanded(
             child: Text(
