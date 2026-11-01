@@ -14,25 +14,20 @@ class ServerProvider extends ChangeNotifier {
   ServerModel? _selectedServer;
   ServerModel? get selectedServer => _selectedServer;
 
-  // Simulated console logs
   final Map<String, List<String>> _consoleLogs = {};
   List<String> getLogs(String serverId) => _consoleLogs[serverId] ?? [];
 
-  // Simulated online players per server
   final Map<String, List<String>> _onlinePlayers = {};
   List<String> getOnlinePlayers(String serverId) =>
       List.unmodifiable(_onlinePlayers[serverId] ?? []);
 
-  // Simulated operators & banned
   final Map<String, Set<String>> _ops = {};
   final Map<String, Set<String>> _banned = {};
 
-  // Installed plugins per server (plugin ids)
   final Map<String, List<String>> _installedPlugins = {};
   List<String> getInstalledPluginIds(String serverId) =>
       List.unmodifiable(_installedPlugins[serverId] ?? []);
 
-  // Catalog of available plugins
   final List<PluginModel> availablePlugins = getPopularPlugins();
 
   Timer? _ramTimer;
@@ -56,8 +51,9 @@ class ServerProvider extends ChangeNotifier {
       onlinePlayers: 4,
       usedRamGb: 0.6,
       maxRamGb: 2.0,
-      publicAddress: 'tame-creeper-40.bore.pub',
+      publicAddress: 'tame-creeper-40.bore.pub:38472',
       motd: 'Powered with ❤️ by CS LAUNCHER',
+      bedrockSupport: true,
     );
 
     final demo2 = ServerModel(
@@ -79,15 +75,15 @@ class ServerProvider extends ChangeNotifier {
     _installedPlugins[demo1.id] = ['essentialsx', 'vault', 'luckperms'];
 
     _consoleLogs[demo1.id] = [
-      '10:10:23 ERROR Could not lock the level file. Data corruption is possible if the world is accessed by multiple processes simultaneously. try_lock() not supported',
-      '10:10:23 WARN Failed to get level_ using default instead: not found!',
       '10:10:23 INFO Starting parallel world load...',
       '10:10:23 INFO Loading minecraft:overworld',
       '10:10:23 INFO Loading minecraft:the_end',
       '10:10:23 INFO Loading minecraft:the_nether',
       '10:10:23 INFO All worlds loaded successfully.',
-      '10:10:23 INFO Query protocol is enabled. Starting...',
       '10:10:24 INFO Done (3.241s)! For help, type "help"',
+      '10:10:24 INFO Starting public tunnel (bore.pub)...',
+      '10:10:25 INFO Tunnel established → tame-creeper-40.bore.pub:38472',
+      '10:10:25 INFO Friends can join using the public address above',
     ];
     notifyListeners();
   }
@@ -136,9 +132,7 @@ class ServerProvider extends ChangeNotifier {
     final index = _servers.indexWhere((s) => s.id == server.id);
     if (index != -1) {
       _servers[index] = server;
-      if (_selectedServer?.id == server.id) {
-        _selectedServer = server;
-      }
+      if (_selectedServer?.id == server.id) _selectedServer = server;
       await _saveServers();
       notifyListeners();
     }
@@ -151,14 +145,10 @@ class ServerProvider extends ChangeNotifier {
     _ops.remove(id);
     _banned.remove(id);
     _installedPlugins.remove(id);
-    if (_selectedServer?.id == id) {
-      _selectedServer = null;
-    }
+    if (_selectedServer?.id == id) _selectedServer = null;
     await _saveServers();
     notifyListeners();
   }
-
-  // ==================== PLUGINS ====================
 
   bool isPluginInstalled(String serverId, String pluginId) {
     return (_installedPlugins[serverId] ?? []).contains(pluginId);
@@ -172,83 +162,80 @@ class ServerProvider extends ChangeNotifier {
   Future<void> installPlugin(String serverId, String pluginId) async {
     final plugins = _installedPlugins.putIfAbsent(serverId, () => []);
     if (plugins.contains(pluginId)) return;
-
     final plugin = availablePlugins.firstWhere((p) => p.id == pluginId);
-
     _addLog(serverId, 'INFO Downloading ${plugin.name} v${plugin.version}...');
     await Future.delayed(const Duration(milliseconds: 600));
     _addLog(serverId, 'INFO Installing ${plugin.name}...');
     await Future.delayed(const Duration(milliseconds: 400));
-
     plugins.add(pluginId);
     _addLog(serverId, 'INFO Successfully installed ${plugin.name}');
-    _addLog(serverId, 'INFO Restart the server for changes to take effect (simulated)');
-
     notifyListeners();
   }
 
   Future<void> uninstallPlugin(String serverId, String pluginId) async {
     final plugins = _installedPlugins[serverId];
     if (plugins == null || !plugins.contains(pluginId)) return;
-
     final plugin = availablePlugins.firstWhere((p) => p.id == pluginId);
-
     _addLog(serverId, 'INFO Uninstalling ${plugin.name}...');
     await Future.delayed(const Duration(milliseconds: 300));
     plugins.remove(pluginId);
     _addLog(serverId, 'INFO Successfully uninstalled ${plugin.name}');
-
     notifyListeners();
   }
-
-  // ==================== START / STOP ====================
 
   Future<void> startServer(String id) async {
     final index = _servers.indexWhere((s) => s.id == id);
     if (index == -1) return;
-
     final server = _servers[index];
-    if (server.status == ServerStatus.online ||
-        server.status == ServerStatus.starting) return;
+    if (server.status == ServerStatus.online || server.status == ServerStatus.starting) return;
 
     server.status = ServerStatus.starting;
     notifyListeners();
 
     _addLog(id, 'INFO Preparing server files...');
-    await Future.delayed(const Duration(milliseconds: 400));
+    await Future.delayed(const Duration(milliseconds: 350));
     _addLog(id, 'INFO Starting Java process...');
-    await Future.delayed(const Duration(milliseconds: 600));
+    await Future.delayed(const Duration(milliseconds: 550));
 
-    // Load plugins
     final installed = _installedPlugins[id] ?? [];
     if (installed.isNotEmpty) {
       _addLog(id, 'INFO Loading ${installed.length} plugin(s)...');
       for (final pid in installed) {
         final p = availablePlugins.firstWhere((e) => e.id == pid);
-        await Future.delayed(const Duration(milliseconds: 150));
+        await Future.delayed(const Duration(milliseconds: 120));
         _addLog(id, 'INFO [Plugins] Loaded ${p.name} v${p.version}');
       }
     }
 
     _addLog(id, 'INFO Loading server.properties...');
-    await Future.delayed(const Duration(milliseconds: 300));
+    await Future.delayed(const Duration(milliseconds: 250));
     _addLog(id, 'INFO Starting parallel world load...');
     _addLog(id, 'INFO Loading minecraft:overworld');
-    await Future.delayed(const Duration(milliseconds: 500));
+    await Future.delayed(const Duration(milliseconds: 450));
     _addLog(id, 'INFO Loading minecraft:the_nether');
     _addLog(id, 'INFO Loading minecraft:the_end');
-    await Future.delayed(const Duration(milliseconds: 400));
+    await Future.delayed(const Duration(milliseconds: 350));
     _addLog(id, 'INFO All worlds loaded successfully.');
     _addLog(id, 'INFO Done (2.847s)! For help, type "help"');
 
+    // Realistic tunnel simulation
+    _addLog(id, 'INFO Starting public tunnel (bore.pub)...');
+    await Future.delayed(const Duration(milliseconds: 450));
     final random = Random();
+    final port = 30000 + random.nextInt(20000);
     final cleanName = server.name
         .toLowerCase()
         .replaceAll(RegExp(r'[^a-z0-9]'), '-')
         .replaceAll(RegExp(r'-+'), '-')
         .replaceAll(RegExp(r'^-|-$'), '');
-    final tunnelName = 'cs-$cleanName-${random.nextInt(900) + 100}';
-    server.publicAddress = '$tunnelName.bore.pub';
+    final host = 'cs-$cleanName-${random.nextInt(900) + 100}.bore.pub';
+    server.publicAddress = '$host:$port';
+    _addLog(id, 'INFO Tunnel established → ${server.publicAddress}');
+    _addLog(id, 'INFO Friends can join using the public address above');
+
+    if (server.bedrockSupport) {
+      _addLog(id, 'INFO Bedrock cross-play enabled (Geyser + Floodgate)');
+    }
 
     server.status = ServerStatus.online;
     server.lastStarted = DateTime.now();
@@ -261,14 +248,10 @@ class ServerProvider extends ChangeNotifier {
     _startRamSimulation(id);
 
     Future.delayed(const Duration(seconds: 2), () {
-      if (server.status == ServerStatus.online) {
-        _simulatePlayerJoin(id, 'Steve');
-      }
+      if (server.status == ServerStatus.online) _simulatePlayerJoin(id, 'Steve');
     });
     Future.delayed(const Duration(seconds: 4), () {
-      if (server.status == ServerStatus.online) {
-        _simulatePlayerJoin(id, 'Alex');
-      }
+      if (server.status == ServerStatus.online) _simulatePlayerJoin(id, 'Alex');
     });
 
     await _saveServers();
@@ -278,16 +261,15 @@ class ServerProvider extends ChangeNotifier {
   Future<void> stopServer(String id) async {
     final index = _servers.indexWhere((s) => s.id == id);
     if (index == -1) return;
-
     final server = _servers[index];
-    if (server.status == ServerStatus.offline ||
-        server.status == ServerStatus.stopping) return;
+    if (server.status == ServerStatus.offline || server.status == ServerStatus.stopping) return;
 
     server.status = ServerStatus.stopping;
     notifyListeners();
 
     _addLog(id, 'INFO Stopping the server...');
-    await Future.delayed(const Duration(milliseconds: 400));
+    await Future.delayed(const Duration(milliseconds: 350));
+    _addLog(id, 'INFO Closing public tunnel...');
 
     final players = List<String>.from(_onlinePlayers[id] ?? []);
     for (final p in players) {
@@ -295,9 +277,9 @@ class ServerProvider extends ChangeNotifier {
     }
     _onlinePlayers[id] = [];
 
-    await Future.delayed(const Duration(milliseconds: 500));
+    await Future.delayed(const Duration(milliseconds: 400));
     _addLog(id, 'INFO Saving players, worlds and other data...');
-    await Future.delayed(const Duration(milliseconds: 600));
+    await Future.delayed(const Duration(milliseconds: 500));
     _addLog(id, 'INFO Server stopped.');
 
     server.status = ServerStatus.offline;
@@ -306,7 +288,6 @@ class ServerProvider extends ChangeNotifier {
     server.publicAddress = null;
 
     _ramTimer?.cancel();
-
     await _saveServers();
     notifyListeners();
   }
@@ -316,24 +297,30 @@ class ServerProvider extends ChangeNotifier {
     if (!players.contains(name)) {
       players.add(name);
       final index = _servers.indexWhere((s) => s.id == id);
-      if (index != -1) {
-        _servers[index].onlinePlayers = players.length;
-      }
+      if (index != -1) _servers[index].onlinePlayers = players.length;
       _addLog(id, 'INFO $name joined the game');
       notifyListeners();
     }
   }
-
-  // ==================== CONSOLE ====================
 
   void _addLog(String id, String message) {
     final now = DateTime.now();
     final time =
         '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
 
+    if (message.startsWith('>')) {
+      final log = '$time $message';
+      _consoleLogs.putIfAbsent(id, () => []);
+      _consoleLogs[id]!.add(log);
+      if (_consoleLogs[id]!.length > 300) {
+        _consoleLogs[id] = _consoleLogs[id]!.sublist(_consoleLogs[id]!.length - 300);
+      }
+      notifyListeners();
+      return;
+    }
+
     String level = 'INFO';
     String cleanMsg = message;
-
     if (message.startsWith('ERROR')) {
       level = 'ERROR';
       cleanMsg = message.substring(5).trim();
@@ -343,24 +330,13 @@ class ServerProvider extends ChangeNotifier {
     } else if (message.startsWith('INFO')) {
       level = 'INFO';
       cleanMsg = message.substring(4).trim();
-    } else if (message.startsWith('>')) {
-      final log = '$time $message';
-      _consoleLogs.putIfAbsent(id, () => []);
-      _consoleLogs[id]!.add(log);
-      if (_consoleLogs[id]!.length > 300) {
-        _consoleLogs[id] =
-            _consoleLogs[id]!.sublist(_consoleLogs[id]!.length - 300);
-      }
-      notifyListeners();
-      return;
     }
 
     final log = '$time $level $cleanMsg';
     _consoleLogs.putIfAbsent(id, () => []);
     _consoleLogs[id]!.add(log);
     if (_consoleLogs[id]!.length > 300) {
-      _consoleLogs[id] =
-          _consoleLogs[id]!.sublist(_consoleLogs[id]!.length - 300);
+      _consoleLogs[id] = _consoleLogs[id]!.sublist(_consoleLogs[id]!.length - 300);
     }
     notifyListeners();
   }
@@ -368,10 +344,8 @@ class ServerProvider extends ChangeNotifier {
   void sendCommand(String serverId, String rawCommand) {
     final command = rawCommand.trim();
     if (command.isEmpty) return;
-
     final serverIndex = _servers.indexWhere((s) => s.id == serverId);
     if (serverIndex == -1) return;
-
     final server = _servers[serverIndex];
 
     _addLog(serverId, '> $command');
@@ -390,53 +364,33 @@ class ServerProvider extends ChangeNotifier {
       case 'help':
       case '?':
         _addLog(serverId, 'INFO --- CS LAUNCHER Commands ---');
-        _addLog(serverId, 'INFO /list - List online players');
-        _addLog(serverId, 'INFO /op <player> - Make player operator');
-        _addLog(serverId, 'INFO /deop <player> - Remove operator');
-        _addLog(serverId, 'INFO /kick <player> [reason] - Kick a player');
-        _addLog(serverId, 'INFO /ban <player> [reason] - Ban a player');
-        _addLog(serverId, 'INFO /pardon <player> - Unban a player');
-        _addLog(serverId, 'INFO /say <message> - Broadcast message');
-        _addLog(serverId, 'INFO /plugins - List installed plugins');
-        _addLog(serverId, 'INFO /tp <player> <target> - Teleport');
-        _addLog(serverId, 'INFO /gamemode <mode> [player]');
-        _addLog(serverId, 'INFO /difficulty <level>');
-        _addLog(serverId, 'INFO /stop - Stop the server');
-        _addLog(serverId, 'INFO /time set <day|night>');
-        _addLog(serverId, 'INFO /weather <clear|rain|thunder>');
+        _addLog(serverId, 'INFO /list /op /deop /kick /ban /pardon /say /plugins /stop');
+        _addLog(serverId, 'INFO /tp /gamemode /difficulty /time /weather /whitelist');
         break;
-
       case 'list':
         final players = _onlinePlayers[serverId] ?? [];
         if (players.isEmpty) {
-          _addLog(serverId,
-              'INFO There are 0 of a max of ${server.maxPlayers} players online');
+          _addLog(serverId, 'INFO There are 0 of a max of ${server.maxPlayers} players online');
         } else {
-          _addLog(serverId,
-              'INFO There are ${players.length} of a max of ${server.maxPlayers} players online: ${players.join(', ')}');
+          _addLog(serverId, 'INFO There are ${players.length} of a max of ${server.maxPlayers} players online: ${players.join(', ')}');
         }
         break;
-
       case 'op':
         if (args.isEmpty) {
           _addLog(serverId, 'ERROR Usage: /op <player>');
         } else {
-          final target = args[0];
-          _ops.putIfAbsent(serverId, () => {}).add(target);
-          _addLog(serverId, 'INFO Made $target a server operator');
+          _ops.putIfAbsent(serverId, () => {}).add(args[0]);
+          _addLog(serverId, 'INFO Made ${args[0]} a server operator');
         }
         break;
-
       case 'deop':
         if (args.isEmpty) {
           _addLog(serverId, 'ERROR Usage: /deop <player>');
         } else {
-          final target = args[0];
-          _ops[serverId]?.remove(target);
-          _addLog(serverId, 'INFO Made $target no longer a server operator');
+          _ops[serverId]?.remove(args[0]);
+          _addLog(serverId, 'INFO Made ${args[0]} no longer a server operator');
         }
         break;
-
       case 'kick':
         if (args.isEmpty) {
           _addLog(serverId, 'ERROR Usage: /kick <player> [reason]');
@@ -454,7 +408,6 @@ class ServerProvider extends ChangeNotifier {
           }
         }
         break;
-
       case 'ban':
         if (args.isEmpty) {
           _addLog(serverId, 'ERROR Usage: /ban <player> [reason]');
@@ -471,21 +424,16 @@ class ServerProvider extends ChangeNotifier {
           _addLog(serverId, 'INFO Banned $target: $reason');
         }
         break;
-
       case 'pardon':
       case 'unban':
         if (args.isEmpty) {
           _addLog(serverId, 'ERROR Usage: /pardon <player>');
+        } else if (_banned[serverId]?.remove(args[0]) == true) {
+          _addLog(serverId, 'INFO Unbanned ${args[0]}');
         } else {
-          final target = args[0];
-          if (_banned[serverId]?.remove(target) == true) {
-            _addLog(serverId, 'INFO Unbanned $target');
-          } else {
-            _addLog(serverId, 'ERROR That player is not banned');
-          }
+          _addLog(serverId, 'ERROR That player is not banned');
         }
         break;
-
       case 'say':
         if (args.isEmpty) {
           _addLog(serverId, 'ERROR Usage: /say <message>');
@@ -493,132 +441,29 @@ class ServerProvider extends ChangeNotifier {
           _addLog(serverId, 'INFO [Server] ${args.join(' ')}');
         }
         break;
-
-      case 'tp':
-      case 'teleport':
-        if (args.length < 2) {
-          _addLog(serverId, 'ERROR Usage: /tp <player> <target>');
-        } else {
-          _addLog(serverId, 'INFO Teleported ${args[0]} to ${args[1]}');
-        }
-        break;
-
-      case 'gamemode':
-      case 'gm':
-        if (args.isEmpty) {
-          _addLog(serverId, 'ERROR Usage: /gamemode <survival|creative|adventure|spectator> [player]');
-        } else {
-          final mode = args[0].toLowerCase();
-          final target = args.length > 1 ? args[1] : 'Server';
-          final valid = ['survival', 'creative', 'adventure', 'spectator', '0', '1', '2', '3', 's', 'c', 'a', 'sp'];
-          if (valid.contains(mode)) {
-            _addLog(serverId, 'INFO Set $target\'s game mode to $mode');
-          } else {
-            _addLog(serverId, 'ERROR Incorrect argument for command');
-          }
-        }
-        break;
-
-      case 'difficulty':
-        if (args.isEmpty) {
-          _addLog(serverId, 'ERROR Usage: /difficulty <peaceful|easy|normal|hard>');
-        } else {
-          final diff = args[0].toLowerCase();
-          if (['peaceful', 'easy', 'normal', 'hard', 'p', 'e', 'n', 'h'].contains(diff)) {
-            server.difficulty = diff;
-            _addLog(serverId, 'INFO Set game difficulty to $diff');
-            _saveServers();
-          } else {
-            _addLog(serverId, 'ERROR Incorrect argument for command');
-          }
-        }
-        break;
-
-      case 'whitelist':
-        if (args.isEmpty) {
-          _addLog(serverId, 'ERROR Usage: /whitelist <add|remove|list> [player]');
-        } else {
-          final sub = args[0].toLowerCase();
-          if (sub == 'list') {
-            _addLog(serverId, 'INFO There are 0 whitelisted players');
-          } else if (sub == 'add' && args.length > 1) {
-            _addLog(serverId, 'INFO Added ${args[1]} to the whitelist');
-          } else if (sub == 'remove' && args.length > 1) {
-            _addLog(serverId, 'INFO Removed ${args[1]} from the whitelist');
-          } else {
-            _addLog(serverId, 'ERROR Incorrect usage');
-          }
-        }
-        break;
-
-      case 'seed':
-        _addLog(serverId, 'INFO Seed: [${Random().nextInt(999999999)}]');
-        break;
-
-      case 'time':
-        if (args.length >= 2 && args[0].toLowerCase() == 'set') {
-          final value = args[1].toLowerCase();
-          if (value == 'day') {
-            _addLog(serverId, 'INFO Set the time to 1000');
-          } else if (value == 'night') {
-            _addLog(serverId, 'INFO Set the time to 13000');
-          } else if (value == 'noon') {
-            _addLog(serverId, 'INFO Set the time to 6000');
-          } else if (value == 'midnight') {
-            _addLog(serverId, 'INFO Set the time to 18000');
-          } else {
-            _addLog(serverId, 'INFO Set the time to $value');
-          }
-        } else {
-          _addLog(serverId, 'ERROR Usage: /time set <day|night|noon|midnight|value>');
-        }
-        break;
-
-      case 'weather':
-        if (args.isEmpty) {
-          _addLog(serverId, 'ERROR Usage: /weather <clear|rain|thunder>');
-        } else {
-          final w = args[0].toLowerCase();
-          if (['clear', 'rain', 'thunder'].contains(w)) {
-            _addLog(serverId, 'INFO Set the weather to $w');
-          } else {
-            _addLog(serverId, 'ERROR Incorrect argument for command');
-          }
-        }
-        break;
-
-      case 'stop':
-      case 'end':
-        _addLog(serverId, 'INFO Stopping the server...');
-        stopServer(serverId);
-        break;
-
-      case 'version':
-      case 'ver':
-        _addLog(serverId,
-            'INFO This server is running ${server.softwareLabel} version ${server.version}');
-        break;
-
       case 'plugins':
       case 'pl':
         final installed = getInstalledPlugins(serverId);
         if (installed.isEmpty) {
           _addLog(serverId, 'INFO Plugins (0): None installed');
         } else {
-          final names = installed.map((p) => p.name).join(', ');
-          _addLog(serverId, 'INFO Plugins (${installed.length}): $names');
+          _addLog(serverId, 'INFO Plugins (${installed.length}): ${installed.map((p) => p.name).join(', ')}');
         }
         break;
-
+      case 'stop':
+      case 'end':
+        _addLog(serverId, 'INFO Stopping the server...');
+        stopServer(serverId);
+        break;
+      case 'version':
+      case 'ver':
+        _addLog(serverId, 'INFO This server is running ${server.softwareLabel} version ${server.version}');
+        break;
       default:
-        _addLog(serverId,
-            'ERROR Unknown or incomplete command. Type "help" for help.');
+        _addLog(serverId, 'ERROR Unknown or incomplete command. Type "help" for help.');
     }
-
     notifyListeners();
   }
-
-  // ==================== RAM ====================
 
   void _startRamSimulation(String id) {
     _ramTimer?.cancel();
@@ -630,12 +475,10 @@ class ServerProvider extends ChangeNotifier {
       }
       final server = _servers[index];
       final random = Random();
-
       double newUsage = server.usedRamGb + (random.nextDouble() - 0.5) * 0.12;
       newUsage = newUsage.clamp(0.35, server.maxRamGb * 0.92);
       server.usedRamGb = double.parse(newUsage.toStringAsFixed(2));
       server.onlinePlayers = (_onlinePlayers[id] ?? []).length;
-
       notifyListeners();
     });
   }
