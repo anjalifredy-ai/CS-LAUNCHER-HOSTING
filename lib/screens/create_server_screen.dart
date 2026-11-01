@@ -21,9 +21,12 @@ class _CreateServerScreenState extends State<CreateServerScreen> {
   double _maxRam = 2.0;
   int _maxPlayers = 20;
   bool _onlineMode = true;
-  bool _bedrockSupport = false;
+  PlatformType _platform = PlatformType.java;
   GameTemplate _template = GameTemplate.survival;
   String _tunnelRegion = 'EU';
+  bool _aiBuilder = false;
+  bool _importWorld = false;
+  String? _worldName;
 
   @override
   void dispose() {
@@ -41,19 +44,28 @@ class _CreateServerScreenState extends State<CreateServerScreen> {
     String gamemode = 'survival';
     if (_template == GameTemplate.creative) gamemode = 'creative';
 
+    // Auto-pick software for pure Bedrock
+    ServerSoftware software = _software;
+    if (_platform == PlatformType.bedrock) {
+      software = ServerSoftware.powernukkitx;
+    }
+
     final server = ServerModel(
       id: id,
       name: name,
-      software: _software,
+      software: software,
       version: _version,
       maxRamGb: _maxRam,
       maxPlayers: _maxPlayers,
       onlineMode: _onlineMode,
-      bedrockSupport: _bedrockSupport,
+      platformType: _platform,
       template: _template,
       tunnelRegion: _tunnelRegion,
       gamemode: gamemode,
       motd: 'Powered with ❤️ by CS LAUNCHER',
+      aiBuilderEnabled: _aiBuilder,
+      hasCustomWorld: _importWorld,
+      worldPath: _importWorld ? (_worldName ?? 'imported_world') : null,
     );
 
     final provider = Provider.of<ServerProvider>(context, listen: false);
@@ -87,11 +99,78 @@ class _CreateServerScreenState extends State<CreateServerScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            'Pick a template or custom software. Free public tunnel included.',
+            'Java, Bedrock or both. Free public tunnel included.',
             style: GoogleFonts.inter(color: AppTheme.textSecondary, fontSize: 14),
           ),
+          const SizedBox(height: 22),
+
+          // ========== PLATFORM SELECTOR ==========
+          Text('Platform', style: _label),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _PlatformCard(
+                title: 'Java',
+                subtitle: 'PC / Launcher',
+                icon: Icons.computer,
+                selected: _platform == PlatformType.java,
+                onTap: () => setState(() {
+                  _platform = PlatformType.java;
+                  if (_software == ServerSoftware.powernukkitx) {
+                    _software = ServerSoftware.paper;
+                  }
+                }),
+              ),
+              const SizedBox(width: 10),
+              _PlatformCard(
+                title: 'Bedrock',
+                subtitle: 'Mobile / Console',
+                icon: Icons.phone_android,
+                selected: _platform == PlatformType.bedrock,
+                onTap: () => setState(() {
+                  _platform = PlatformType.bedrock;
+                  _software = ServerSoftware.powernukkitx;
+                }),
+              ),
+              const SizedBox(width: 10),
+              _PlatformCard(
+                title: 'Both',
+                subtitle: 'Cross-play',
+                icon: Icons.groups,
+                selected: _platform == PlatformType.both,
+                onTap: () => setState(() {
+                  _platform = PlatformType.both;
+                  if (_software == ServerSoftware.powernukkitx) {
+                    _software = ServerSoftware.paper;
+                  }
+                }),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (_platform == PlatformType.both)
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryGreen.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline, size: 16, color: AppTheme.primaryGreen),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Uses Geyser + Floodgate so Java & Bedrock players join the same world.',
+                      style: GoogleFonts.inter(fontSize: 12, color: AppTheme.textSecondary),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           const SizedBox(height: 20),
 
+          // Template
           Text('Game Mode Template', style: _label),
           const SizedBox(height: 8),
           Wrap(
@@ -117,28 +196,48 @@ class _CreateServerScreenState extends State<CreateServerScreen> {
           ),
           const SizedBox(height: 16),
 
-          Text('Software', style: _label),
-          const SizedBox(height: 6),
-          DropdownButtonFormField<ServerSoftware>(
-            value: _software,
-            decoration: const InputDecoration(),
-            dropdownColor: AppTheme.surface,
-            items: [
-              DropdownMenuItem(value: ServerSoftware.paper, child: Text('Paper (Recommended)')),
-              DropdownMenuItem(value: ServerSoftware.purpur, child: Text('Purpur')),
-              DropdownMenuItem(value: ServerSoftware.spigot, child: Text('Spigot')),
-              DropdownMenuItem(value: ServerSoftware.fabric, child: Text('Fabric (Mods)')),
-              DropdownMenuItem(value: ServerSoftware.neoforge, child: Text('NeoForge (Mods)')),
-              DropdownMenuItem(value: ServerSoftware.forge, child: Text('Forge')),
-              DropdownMenuItem(value: ServerSoftware.vanilla, child: Text('Vanilla')),
-              DropdownMenuItem(value: ServerSoftware.powernukkitx, child: Text('PowerNukkitX (Native Bedrock)')),
-              DropdownMenuItem(value: ServerSoftware.pumpkin, child: Text('Pumpkin (Low RAM)')),
-            ],
-            onChanged: (v) {
-              if (v != null) setState(() => _software = v);
-            },
-          ),
-          const SizedBox(height: 16),
+          // Software (hidden when pure Bedrock)
+          if (_platform != PlatformType.bedrock) ...[
+            Text('Software', style: _label),
+            const SizedBox(height: 6),
+            DropdownButtonFormField<ServerSoftware>(
+              value: _software == ServerSoftware.powernukkitx
+                  ? ServerSoftware.paper
+                  : _software,
+              decoration: const InputDecoration(),
+              dropdownColor: AppTheme.surface,
+              items: const [
+                DropdownMenuItem(value: ServerSoftware.paper, child: Text('Paper (Recommended)')),
+                DropdownMenuItem(value: ServerSoftware.purpur, child: Text('Purpur')),
+                DropdownMenuItem(value: ServerSoftware.spigot, child: Text('Spigot')),
+                DropdownMenuItem(value: ServerSoftware.fabric, child: Text('Fabric (Mods)')),
+                DropdownMenuItem(value: ServerSoftware.neoforge, child: Text('NeoForge (Mods)')),
+                DropdownMenuItem(value: ServerSoftware.forge, child: Text('Forge')),
+                DropdownMenuItem(value: ServerSoftware.vanilla, child: Text('Vanilla')),
+                DropdownMenuItem(value: ServerSoftware.pumpkin, child: Text('Pumpkin (Low RAM)')),
+              ],
+              onChanged: (v) {
+                if (v != null) setState(() => _software = v);
+              },
+            ),
+            const SizedBox(height: 16),
+          ] else ...[
+            Text('Software', style: _label),
+            const SizedBox(height: 6),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              decoration: BoxDecoration(
+                color: AppTheme.surface,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                'PowerNukkitX (Native Bedrock)',
+                style: GoogleFonts.inter(fontWeight: FontWeight.w500),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
 
           Text('Version', style: _label),
           const SizedBox(height: 6),
@@ -172,6 +271,69 @@ class _CreateServerScreenState extends State<CreateServerScreen> {
             },
           ),
           const SizedBox(height: 16),
+
+          // World Import
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Import World'),
+            subtitle: Text(
+              _importWorld
+                  ? (_worldName ?? 'World selected')
+                  : 'Use a custom world folder / .zip from device',
+              style: GoogleFonts.inter(fontSize: 12),
+            ),
+            value: _importWorld,
+            activeColor: AppTheme.primaryGreen,
+            onChanged: (v) {
+              setState(() {
+                _importWorld = v;
+                if (v) {
+                  // Simulated file picker
+                  _worldName = 'MyWorld_${DateTime.now().day}${DateTime.now().month}';
+                } else {
+                  _worldName = null;
+                }
+              });
+              if (v) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('World picker (simulated). Real build will use file_picker.'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+          ),
+
+          // AI Builder
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Row(
+              children: [
+                const Text('AI Builder'),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryGreen.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    'NEW',
+                    style: GoogleFonts.inter(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.primaryGreen,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            subtitle: const Text('Describe builds in chat — AI places blocks in-world'),
+            value: _aiBuilder,
+            activeColor: AppTheme.primaryGreen,
+            onChanged: (v) => setState(() => _aiBuilder = v),
+          ),
 
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -215,16 +377,8 @@ class _CreateServerScreenState extends State<CreateServerScreen> {
             activeColor: AppTheme.primaryGreen,
             onChanged: (v) => setState(() => _onlineMode = v),
           ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Bedrock Cross-Play'),
-            subtitle: const Text('Geyser + Floodgate (Java + Bedrock together)'),
-            value: _bedrockSupport,
-            activeColor: AppTheme.primaryGreen,
-            onChanged: (v) => setState(() => _bedrockSupport = v),
-          ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
 
           Container(
             padding: const EdgeInsets.all(16),
@@ -238,9 +392,10 @@ class _CreateServerScreenState extends State<CreateServerScreen> {
                 _FeatureRow(Icons.flash_on, 'Easy One-Click Setup'),
                 _FeatureRow(Icons.public, 'No Portforwarding'),
                 _FeatureRow(Icons.favorite, '100% Free & Unlimited'),
-                _FeatureRow(Icons.devices, 'Java + Bedrock Cross-Play'),
+                _FeatureRow(Icons.devices, 'Java / Bedrock / Both'),
                 _FeatureRow(Icons.link, 'Free Public Domain (bore.pub)'),
-                _FeatureRow(Icons.extension, 'Plugins & Mods Support'),
+                _FeatureRow(Icons.smart_toy, 'AI Builder (describe & build)'),
+                _FeatureRow(Icons.folder_zip, 'World Import'),
               ],
             ),
           ),
@@ -293,6 +448,70 @@ class _CreateServerScreenState extends State<CreateServerScreen> {
         fontWeight: FontWeight.w500,
         color: AppTheme.textSecondary,
       );
+}
+
+class _PlatformCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _PlatformCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+          decoration: BoxDecoration(
+            color: selected ? AppTheme.primaryGreen.withOpacity(0.12) : AppTheme.card,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected ? AppTheme.primaryGreen : AppTheme.surfaceLight,
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          child: Column(
+            children: [
+              Icon(
+                icon,
+                size: 26,
+                color: selected ? AppTheme.primaryGreen : AppTheme.textMuted,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                title,
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: selected ? AppTheme.primaryGreen : Colors.white,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: GoogleFonts.inter(
+                  fontSize: 10,
+                  color: AppTheme.textMuted,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _FeatureRow extends StatelessWidget {
