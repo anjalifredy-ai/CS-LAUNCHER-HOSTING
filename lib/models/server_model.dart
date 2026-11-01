@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart';
+
 enum ServerSoftware {
   paper,
   purpur,
@@ -191,6 +193,3 @@ class ServerModel {
     );
   }
 }
-
-// Helper for Color without importing material in model if possible, but for simplicity:
-import 'package:flutter/material.dart';
