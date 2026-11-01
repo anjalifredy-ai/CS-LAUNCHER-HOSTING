@@ -8,7 +8,8 @@ enum ServerSoftware {
   neoforge,
   forge,
   vanilla,
-  optifine, // client side mostly, but for completeness
+  powernukkitx, // Native Bedrock
+  pumpkin, // Fast low-RAM
 }
 
 enum ServerStatus {
@@ -19,13 +20,23 @@ enum ServerStatus {
   error,
 }
 
+enum GameTemplate {
+  none,
+  survival,
+  creative,
+  skyblock,
+  oneblock,
+  acidisland,
+  caveblock,
+}
+
 class ServerModel {
   final String id;
   String name;
   String description;
-  String? iconPath; // local path or asset
+  String? iconPath;
   ServerSoftware software;
-  String version; // e.g. "1.21.1"
+  String version;
   ServerStatus status;
   int maxPlayers;
   int onlinePlayers;
@@ -35,15 +46,21 @@ class ServerModel {
   bool allowSkins;
   bool pvp;
   bool hardcore;
-  String difficulty; // peaceful, easy, normal, hard
-  String gamemode; // survival, creative, adventure, spectator
+  String difficulty;
+  String gamemode;
   int viewDistance;
   int simulationDistance;
-  String? publicAddress; // bore.pub address
+  String? publicAddress;
   int port;
   DateTime createdAt;
   DateTime? lastStarted;
   String motd;
+
+  // Anvil-style extras
+  bool bedrockSupport; // Geyser + Floodgate
+  bool whitelistEnabled;
+  GameTemplate template;
+  String tunnelRegion; // EU, US, AS etc.
 
   ServerModel({
     required this.id,
@@ -70,6 +87,10 @@ class ServerModel {
     DateTime? createdAt,
     this.lastStarted,
     this.motd = 'A Minecraft Server powered by CS LAUNCHER',
+    this.bedrockSupport = false,
+    this.whitelistEnabled = false,
+    this.template = GameTemplate.none,
+    this.tunnelRegion = 'EU',
   }) : createdAt = createdAt ?? DateTime.now();
 
   String get softwareLabel {
@@ -88,8 +109,10 @@ class ServerModel {
         return 'Forge';
       case ServerSoftware.vanilla:
         return 'Vanilla';
-      case ServerSoftware.optifine:
-        return 'OptiFine';
+      case ServerSoftware.powernukkitx:
+        return 'PowerNukkitX';
+      case ServerSoftware.pumpkin:
+        return 'Pumpkin';
     }
   }
 
@@ -122,9 +145,30 @@ class ServerModel {
     }
   }
 
-  // For UI display like in screenshots
   String get subtitle {
-    return '${softwareLabel} JAR · $maxPlayers players';
+    final base = '${softwareLabel} · $maxPlayers players';
+    if (bedrockSupport) return '$base · Cross-play';
+    if (software == ServerSoftware.powernukkitx) return '$base · Bedrock';
+    return base;
+  }
+
+  String get templateLabel {
+    switch (template) {
+      case GameTemplate.none:
+        return 'Custom';
+      case GameTemplate.survival:
+        return 'Survival';
+      case GameTemplate.creative:
+        return 'Creative';
+      case GameTemplate.skyblock:
+        return 'SkyBlock';
+      case GameTemplate.oneblock:
+        return 'OneBlock';
+      case GameTemplate.acidisland:
+        return 'AcidIsland';
+      case GameTemplate.caveblock:
+        return 'CaveBlock';
+    }
   }
 
   Map<String, dynamic> toJson() {
@@ -153,6 +197,10 @@ class ServerModel {
       'createdAt': createdAt.toIso8601String(),
       'lastStarted': lastStarted?.toIso8601String(),
       'motd': motd,
+      'bedrockSupport': bedrockSupport,
+      'whitelistEnabled': whitelistEnabled,
+      'template': template.name,
+      'tunnelRegion': tunnelRegion,
     };
   }
 
@@ -190,6 +238,13 @@ class ServerModel {
           ? DateTime.tryParse(json['lastStarted'])
           : null,
       motd: json['motd'] ?? 'A Minecraft Server powered by CS LAUNCHER',
+      bedrockSupport: json['bedrockSupport'] ?? false,
+      whitelistEnabled: json['whitelistEnabled'] ?? false,
+      template: GameTemplate.values.firstWhere(
+        (e) => e.name == json['template'],
+        orElse: () => GameTemplate.none,
+      ),
+      tunnelRegion: json['tunnelRegion'] ?? 'EU',
     );
   }
 }
