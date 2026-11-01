@@ -35,6 +35,18 @@ class _ServerDetailScreenState extends State<ServerDetailScreen>
     super.dispose();
   }
 
+  void _scrollToBottom() {
+    Future.delayed(const Duration(milliseconds: 80), () {
+      if (_logScrollController.hasClients) {
+        _logScrollController.animateTo(
+          _logScrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<ServerProvider>(
@@ -52,12 +64,26 @@ class _ServerDetailScreenState extends State<ServerDetailScreen>
         }
 
         final logs = provider.getLogs(server.id);
+        final isOnline = server.status == ServerStatus.online;
 
         return Scaffold(
           backgroundColor: AppTheme.background,
           appBar: AppBar(
             title: Text(server.name),
             actions: [
+              // Quick Start / Stop from app bar
+              if (isOnline)
+                IconButton(
+                  icon: const Icon(Icons.stop_circle_outlined, color: AppTheme.error),
+                  tooltip: 'Stop Server',
+                  onPressed: () => provider.stopServer(server.id),
+                )
+              else
+                IconButton(
+                  icon: const Icon(Icons.play_circle_outline, color: AppTheme.primaryGreen),
+                  tooltip: 'Start Server',
+                  onPressed: () => provider.startServer(server.id),
+                ),
               IconButton(
                 icon: const Icon(Icons.settings),
                 onPressed: () {
@@ -99,9 +125,7 @@ class _ServerDetailScreenState extends State<ServerDetailScreen>
                           width: 8,
                           height: 8,
                           decoration: BoxDecoration(
-                            color: server.status == ServerStatus.online
-                                ? AppTheme.primaryGreen
-                                : AppTheme.textMuted,
+                            color: isOnline ? AppTheme.primaryGreen : AppTheme.textMuted,
                             shape: BoxShape.circle,
                           ),
                         ),
@@ -142,8 +166,7 @@ class _ServerDetailScreenState extends State<ServerDetailScreen>
                             padding: const EdgeInsets.all(12),
                             itemCount: logs.length,
                             itemBuilder: (context, index) {
-                              final log = logs[index];
-                              return _LogLine(log: log);
+                              return _LogLine(log: logs[index]);
                             },
                           ),
                   ),
@@ -163,12 +186,15 @@ class _ServerDetailScreenState extends State<ServerDetailScreen>
                           Expanded(
                             child: TextField(
                               controller: _commandController,
+                              enabled: isOnline,
                               style: GoogleFonts.robotoMono(fontSize: 14),
                               decoration: InputDecoration(
-                                hintText: 'Enter command...',
+                                hintText: isOnline
+                                    ? 'Enter command... (e.g. /op Steve)'
+                                    : 'Start the server first...',
                                 hintStyle: GoogleFonts.robotoMono(
                                   color: AppTheme.textMuted,
-                                  fontSize: 14,
+                                  fontSize: 13,
                                 ),
                                 filled: true,
                                 fillColor: AppTheme.surfaceLight,
@@ -180,21 +206,17 @@ class _ServerDetailScreenState extends State<ServerDetailScreen>
                                   horizontal: 14,
                                   vertical: 12,
                                 ),
+                                prefixIcon: const Icon(
+                                  Icons.terminal,
+                                  size: 18,
+                                  color: AppTheme.textMuted,
+                                ),
                               ),
                               onSubmitted: (value) {
-                                if (value.trim().isNotEmpty) {
+                                if (value.trim().isNotEmpty && isOnline) {
                                   provider.sendCommand(server.id, value.trim());
                                   _commandController.clear();
-                                  // Auto scroll to bottom
-                                  Future.delayed(const Duration(milliseconds: 100), () {
-                                    if (_logScrollController.hasClients) {
-                                      _logScrollController.animateTo(
-                                        _logScrollController.position.maxScrollExtent,
-                                        duration: const Duration(milliseconds: 200),
-                                        curve: Curves.easeOut,
-                                      );
-                                    }
-                                  });
+                                  _scrollToBottom();
                                 }
                               },
                             ),
@@ -202,18 +224,26 @@ class _ServerDetailScreenState extends State<ServerDetailScreen>
                           const SizedBox(width: 8),
                           Container(
                             decoration: BoxDecoration(
-                              color: AppTheme.primaryGreen,
+                              color: isOnline
+                                  ? AppTheme.primaryGreen
+                                  : AppTheme.surfaceLight,
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: IconButton(
-                              onPressed: () {
-                                final value = _commandController.text.trim();
-                                if (value.isNotEmpty) {
-                                  provider.sendCommand(server.id, value);
-                                  _commandController.clear();
-                                }
-                              },
-                              icon: const Icon(Icons.send_rounded, color: Colors.black),
+                              onPressed: isOnline
+                                  ? () {
+                                      final value = _commandController.text.trim();
+                                      if (value.isNotEmpty) {
+                                        provider.sendCommand(server.id, value);
+                                        _commandController.clear();
+                                        _scrollToBottom();
+                                      }
+                                    }
+                                  : null,
+                              icon: Icon(
+                                Icons.send_rounded,
+                                color: isOnline ? Colors.black : AppTheme.textMuted,
+                              ),
                             ),
                           ),
                         ],
@@ -224,7 +254,7 @@ class _ServerDetailScreenState extends State<ServerDetailScreen>
               ),
 
               // ===== PLAYERS TAB =====
-              _PlayersTab(server: server),
+              _PlayersTab(serverId: server.id, server: server),
 
               // ===== INFO TAB =====
               _InfoTab(server: server, provider: provider),
@@ -243,21 +273,28 @@ class _LogLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Color levelColor = AppTheme.textSecondary;
+    FontWeight weight = FontWeight.normal;
+
     if (log.contains(' ERROR ')) {
       levelColor = AppTheme.error;
     } else if (log.contains(' WARN ')) {
       levelColor = AppTheme.warning;
     } else if (log.contains(' INFO ')) {
       levelColor = AppTheme.info;
+    } else if (log.contains(' > ')) {
+      // User typed command
+      levelColor = AppTheme.accentGreen;
+      weight = FontWeight.w500;
     }
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.only(bottom: 5),
       child: SelectableText(
         log,
         style: GoogleFonts.robotoMono(
-          fontSize: 12,
+          fontSize: 12.5,
           color: levelColor,
+          fontWeight: weight,
           height: 1.35,
         ),
       ),
@@ -266,11 +303,16 @@ class _LogLine extends StatelessWidget {
 }
 
 class _PlayersTab extends StatelessWidget {
+  final String serverId;
   final ServerModel server;
-  const _PlayersTab({required this.server});
+
+  const _PlayersTab({required this.serverId, required this.server});
 
   @override
   Widget build(BuildContext context) {
+    final provider = Provider.of<ServerProvider>(context);
+    final players = provider.getOnlinePlayers(serverId);
+
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -287,7 +329,7 @@ class _PlayersTab extends StatelessWidget {
               ),
               const Spacer(),
               Text(
-                '${server.onlinePlayers} / ${server.maxPlayers}',
+                '${players.length} / ${server.maxPlayers}',
                 style: GoogleFonts.inter(
                   color: AppTheme.primaryGreen,
                   fontWeight: FontWeight.w700,
@@ -295,8 +337,16 @@ class _PlayersTab extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: 4),
+          Text(
+            'Tap the menu to OP / Kick / Ban players',
+            style: GoogleFonts.inter(
+              fontSize: 12,
+              color: AppTheme.textMuted,
+            ),
+          ),
           const SizedBox(height: 16),
-          if (server.onlinePlayers == 0)
+          if (players.isEmpty)
             Expanded(
               child: Center(
                 child: Column(
@@ -305,7 +355,9 @@ class _PlayersTab extends StatelessWidget {
                     Icon(Icons.people_outline, size: 48, color: AppTheme.textMuted),
                     const SizedBox(height: 12),
                     Text(
-                      'No players online',
+                      server.status == ServerStatus.online
+                          ? 'No players online yet'
+                          : 'Server is offline',
                       style: GoogleFonts.inter(color: AppTheme.textMuted),
                     ),
                   ],
@@ -313,26 +365,91 @@ class _PlayersTab extends StatelessWidget {
               ),
             )
           else
-            // Placeholder list (real implementation would parse from console / RCON)
             Expanded(
-              child: ListView.builder(
-                itemCount: server.onlinePlayers,
+              child: ListView.separated(
+                itemCount: players.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
                 itemBuilder: (context, index) {
+                  final name = players[index];
                   return ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 4),
                     leading: CircleAvatar(
-                      backgroundColor: AppTheme.primaryGreen.withOpacity(0.2),
+                      backgroundColor: AppTheme.primaryGreen.withOpacity(0.18),
                       child: Text(
-                        'P${index + 1}',
-                        style: const TextStyle(color: AppTheme.primaryGreen),
+                        name.isNotEmpty ? name[0].toUpperCase() : '?',
+                        style: const TextStyle(
+                          color: AppTheme.primaryGreen,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
-                    title: Text('Player${index + 1}'),
-                    subtitle: const Text('Survival'),
-                    trailing: PopupMenuButton(
+                    title: Text(
+                      name,
+                      style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+                    ),
+                    subtitle: const Text('Online'),
+                    trailing: PopupMenuButton<String>(
+                      icon: const Icon(Icons.more_vert, size: 20),
+                      onSelected: (value) {
+                        switch (value) {
+                          case 'op':
+                            provider.sendCommand(serverId, 'op $name');
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Opped $name')),
+                            );
+                            break;
+                          case 'deop':
+                            provider.sendCommand(serverId, 'deop $name');
+                            break;
+                          case 'kick':
+                            provider.sendCommand(serverId, 'kick $name');
+                            break;
+                          case 'ban':
+                            provider.sendCommand(serverId, 'ban $name');
+                            break;
+                        }
+                      },
                       itemBuilder: (context) => [
-                        const PopupMenuItem(value: 'op', child: Text('Make OP')),
-                        const PopupMenuItem(value: 'kick', child: Text('Kick')),
-                        const PopupMenuItem(value: 'ban', child: Text('Ban')),
+                        const PopupMenuItem(
+                          value: 'op',
+                          child: Row(
+                            children: [
+                              Icon(Icons.shield, size: 18, color: AppTheme.primaryGreen),
+                              SizedBox(width: 10),
+                              Text('Make OP'),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'deop',
+                          child: Row(
+                            children: [
+                              Icon(Icons.shield_outlined, size: 18),
+                              SizedBox(width: 10),
+                              Text('Remove OP'),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'kick',
+                          child: Row(
+                            children: [
+                              Icon(Icons.logout, size: 18, color: AppTheme.warning),
+                              SizedBox(width: 10),
+                              Text('Kick'),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'ban',
+                          child: Row(
+                            children: [
+                              Icon(Icons.block, size: 18, color: AppTheme.error),
+                              SizedBox(width: 10),
+                              Text('Ban'),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                   );
