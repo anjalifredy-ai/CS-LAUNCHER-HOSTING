@@ -51,10 +51,12 @@ class ServerProvider extends ChangeNotifier {
       onlinePlayers: 4,
       usedRamGb: 0.6,
       maxRamGb: 2.0,
-      publicAddress: 'tame-creeper-40.bore.pub:38472',
+      publicAddress: 'tunnel.cs-launcher.xyz:33421',
       motd: 'Powered with ❤️ by CS LAUNCHER',
       platformType: PlatformType.both,
       aiBuilderEnabled: true,
+      tunnelProvider: TunnelProvider.csTunnel,
+      tunnelHost: 'tunnel.cs-launcher.xyz',
     );
 
     final demo2 = ServerModel(
@@ -67,6 +69,7 @@ class ServerProvider extends ChangeNotifier {
       maxPlayers: 20,
       maxRamGb: 1.5,
       platformType: PlatformType.java,
+      tunnelProvider: TunnelProvider.csTunnel,
     );
 
     _servers = [demo1, demo2];
@@ -79,14 +82,12 @@ class ServerProvider extends ChangeNotifier {
     _consoleLogs[demo1.id] = [
       '10:10:23 INFO Starting parallel world load...',
       '10:10:23 INFO Loading minecraft:overworld',
-      '10:10:23 INFO Loading minecraft:the_end',
-      '10:10:23 INFO Loading minecraft:the_nether',
       '10:10:23 INFO All worlds loaded successfully.',
       '10:10:24 INFO Done (3.241s)! For help, type "help"',
-      '10:10:24 INFO Starting public tunnel (bore.pub)...',
-      '10:10:25 INFO Tunnel established → tame-creeper-40.bore.pub:38472',
+      '10:10:24 INFO Starting CS Tunnel (free)...',
+      '10:10:25 INFO Tunnel established → tunnel.cs-launcher.xyz:33421',
       '10:10:25 INFO Friends can join using the public address above',
-      '10:10:25 INFO Platform: Java + Bedrock (Geyser + Floodgate)',
+      '10:10:25 INFO Platform: Java + Bedrock',
       '10:10:25 INFO AI Builder ready',
     ];
     notifyListeners();
@@ -235,17 +236,13 @@ class ServerProvider extends ChangeNotifier {
     _addLog(id, 'INFO All worlds loaded successfully.');
     _addLog(id, 'INFO Done (2.847s)! For help, type "help"');
 
-    _addLog(id, 'INFO Starting public tunnel (bore.pub)...');
+    // CS Tunnel / bore / custom
+    final tunnelHost = server.effectiveTunnelHost;
+    _addLog(id, 'INFO Starting ${server.tunnelProviderLabel}...');
     await Future.delayed(const Duration(milliseconds: 450));
     final random = Random();
-    final port = 30000 + random.nextInt(20000);
-    final cleanName = server.name
-        .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9]'), '-')
-        .replaceAll(RegExp(r'-+'), '-')
-        .replaceAll(RegExp(r'^-|-$'), '');
-    final host = 'cs-$cleanName-${random.nextInt(900) + 100}.bore.pub';
-    server.publicAddress = '$host:$port';
+    final publicPort = 30000 + random.nextInt(10000);
+    server.publicAddress = '$tunnelHost:$publicPort';
     _addLog(id, 'INFO Tunnel established → ${server.publicAddress}');
     _addLog(id, 'INFO Friends can join using the public address above');
     _addLog(id, 'INFO Platform: ${server.platformLabel}');
@@ -382,7 +379,6 @@ class ServerProvider extends ChangeNotifier {
       case '?':
         _addLog(serverId, 'INFO --- CS LAUNCHER Commands ---');
         _addLog(serverId, 'INFO /list /op /deop /kick /ban /pardon /say /plugins /stop');
-        _addLog(serverId, 'INFO /tp /gamemode /difficulty /time /weather /whitelist');
         break;
       case 'list':
         final players = _onlinePlayers[serverId] ?? [];
