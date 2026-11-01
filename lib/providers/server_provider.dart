@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
 import '../models/server_model.dart';
+import '../models/plugin_model.dart';
 
 class ServerProvider extends ChangeNotifier {
   List<ServerModel> _servers = [];
@@ -17,16 +18,22 @@ class ServerProvider extends ChangeNotifier {
   final Map<String, List<String>> _consoleLogs = {};
   List<String> getLogs(String serverId) => _consoleLogs[serverId] ?? [];
 
-  // Simulated online players per server (name list)
+  // Simulated online players per server
   final Map<String, List<String>> _onlinePlayers = {};
   List<String> getOnlinePlayers(String serverId) =>
       List.unmodifiable(_onlinePlayers[serverId] ?? []);
 
-  // Simulated operators
+  // Simulated operators & banned
   final Map<String, Set<String>> _ops = {};
-
-  // Simulated banned players
   final Map<String, Set<String>> _banned = {};
+
+  // Installed plugins per server (plugin ids)
+  final Map<String, List<String>> _installedPlugins = {};
+  List<String> getInstalledPluginIds(String serverId) =>
+      List.unmodifiable(_installedPlugins[serverId] ?? []);
+
+  // Catalog of available plugins
+  final List<PluginModel> availablePlugins = getPopularPlugins();
 
   Timer? _ramTimer;
 
@@ -66,10 +73,10 @@ class ServerProvider extends ChangeNotifier {
 
     _servers = [demo1, demo2];
 
-    // Demo players
     _onlinePlayers[demo1.id] = ['Steve', 'Alex', 'Notch', 'Herobrine'];
     _ops[demo1.id] = {'Steve'};
     _banned[demo1.id] = {};
+    _installedPlugins[demo1.id] = ['essentialsx', 'vault', 'luckperms'];
 
     _consoleLogs[demo1.id] = [
       '10:10:23 ERROR Could not lock the level file. Data corruption is possible if the world is accessed by multiple processes simultaneously. try_lock() not supported',
@@ -120,6 +127,7 @@ class ServerProvider extends ChangeNotifier {
     _onlinePlayers[server.id] = [];
     _ops[server.id] = {};
     _banned[server.id] = {};
+    _installedPlugins[server.id] = [];
     await _saveServers();
     notifyListeners();
   }
@@ -142,10 +150,54 @@ class ServerProvider extends ChangeNotifier {
     _onlinePlayers.remove(id);
     _ops.remove(id);
     _banned.remove(id);
+    _installedPlugins.remove(id);
     if (_selectedServer?.id == id) {
       _selectedServer = null;
     }
     await _saveServers();
+    notifyListeners();
+  }
+
+  // ==================== PLUGINS ====================
+
+  bool isPluginInstalled(String serverId, String pluginId) {
+    return (_installedPlugins[serverId] ?? []).contains(pluginId);
+  }
+
+  List<PluginModel> getInstalledPlugins(String serverId) {
+    final ids = _installedPlugins[serverId] ?? [];
+    return availablePlugins.where((p) => ids.contains(p.id)).toList();
+  }
+
+  Future<void> installPlugin(String serverId, String pluginId) async {
+    final plugins = _installedPlugins.putIfAbsent(serverId, () => []);
+    if (plugins.contains(pluginId)) return;
+
+    final plugin = availablePlugins.firstWhere((p) => p.id == pluginId);
+
+    _addLog(serverId, 'INFO Downloading ${plugin.name} v${plugin.version}...');
+    await Future.delayed(const Duration(milliseconds: 600));
+    _addLog(serverId, 'INFO Installing ${plugin.name}...');
+    await Future.delayed(const Duration(milliseconds: 400));
+
+    plugins.add(pluginId);
+    _addLog(serverId, 'INFO Successfully installed ${plugin.name}');
+    _addLog(serverId, 'INFO Restart the server for changes to take effect (simulated)');
+
+    notifyListeners();
+  }
+
+  Future<void> uninstallPlugin(String serverId, String pluginId) async {
+    final plugins = _installedPlugins[serverId];
+    if (plugins == null || !plugins.contains(pluginId)) return;
+
+    final plugin = availablePlugins.firstWhere((p) => p.id == pluginId);
+
+    _addLog(serverId, 'INFO Uninstalling ${plugin.name}...');
+    await Future.delayed(const Duration(milliseconds: 300));
+    plugins.remove(pluginId);
+    _addLog(serverId, 'INFO Successfully uninstalled ${plugin.name}');
+
     notifyListeners();
   }
 
@@ -163,21 +215,32 @@ class ServerProvider extends ChangeNotifier {
     notifyListeners();
 
     _addLog(id, 'INFO Preparing server files...');
-    await Future.delayed(const Duration(milliseconds: 500));
-    _addLog(id, 'INFO Starting Java process...');
-    await Future.delayed(const Duration(milliseconds: 700));
-    _addLog(id, 'INFO Loading server.properties...');
     await Future.delayed(const Duration(milliseconds: 400));
+    _addLog(id, 'INFO Starting Java process...');
+    await Future.delayed(const Duration(milliseconds: 600));
+
+    // Load plugins
+    final installed = _installedPlugins[id] ?? [];
+    if (installed.isNotEmpty) {
+      _addLog(id, 'INFO Loading ${installed.length} plugin(s)...');
+      for (final pid in installed) {
+        final p = availablePlugins.firstWhere((e) => e.id == pid);
+        await Future.delayed(const Duration(milliseconds: 150));
+        _addLog(id, 'INFO [Plugins] Loaded ${p.name} v${p.version}');
+      }
+    }
+
+    _addLog(id, 'INFO Loading server.properties...');
+    await Future.delayed(const Duration(milliseconds: 300));
     _addLog(id, 'INFO Starting parallel world load...');
     _addLog(id, 'INFO Loading minecraft:overworld');
-    await Future.delayed(const Duration(milliseconds: 600));
+    await Future.delayed(const Duration(milliseconds: 500));
     _addLog(id, 'INFO Loading minecraft:the_nether');
     _addLog(id, 'INFO Loading minecraft:the_end');
-    await Future.delayed(const Duration(milliseconds: 500));
+    await Future.delayed(const Duration(milliseconds: 400));
     _addLog(id, 'INFO All worlds loaded successfully.');
     _addLog(id, 'INFO Done (2.847s)! For help, type "help"');
 
-    // bore.pub style public address
     final random = Random();
     final cleanName = server.name
         .toLowerCase()
@@ -191,14 +254,12 @@ class ServerProvider extends ChangeNotifier {
     server.lastStarted = DateTime.now();
     server.usedRamGb = 0.45 + random.nextDouble() * 0.25;
 
-    // Simulate some players joining after a short delay
     _onlinePlayers[id] = [];
     _ops.putIfAbsent(id, () => {});
     _banned.putIfAbsent(id, () => {});
 
     _startRamSimulation(id);
 
-    // Fake join messages after a bit
     Future.delayed(const Duration(seconds: 2), () {
       if (server.status == ServerStatus.online) {
         _simulatePlayerJoin(id, 'Steve');
@@ -228,7 +289,6 @@ class ServerProvider extends ChangeNotifier {
     _addLog(id, 'INFO Stopping the server...');
     await Future.delayed(const Duration(milliseconds: 400));
 
-    // Kick all players
     final players = List<String>.from(_onlinePlayers[id] ?? []);
     for (final p in players) {
       _addLog(id, 'INFO $p left the game');
@@ -237,7 +297,7 @@ class ServerProvider extends ChangeNotifier {
 
     await Future.delayed(const Duration(milliseconds: 500));
     _addLog(id, 'INFO Saving players, worlds and other data...');
-    await Future.delayed(const Duration(milliseconds: 700));
+    await Future.delayed(const Duration(milliseconds: 600));
     _addLog(id, 'INFO Server stopped.');
 
     server.status = ServerStatus.offline;
@@ -264,7 +324,7 @@ class ServerProvider extends ChangeNotifier {
     }
   }
 
-  // ==================== CONSOLE COMMANDS ====================
+  // ==================== CONSOLE ====================
 
   void _addLog(String id, String message) {
     final now = DateTime.now();
@@ -284,7 +344,6 @@ class ServerProvider extends ChangeNotifier {
       level = 'INFO';
       cleanMsg = message.substring(4).trim();
     } else if (message.startsWith('>')) {
-      // User typed command - show as plain
       final log = '$time $message';
       _consoleLogs.putIfAbsent(id, () => []);
       _consoleLogs[id]!.add(log);
@@ -315,16 +374,13 @@ class ServerProvider extends ChangeNotifier {
 
     final server = _servers[serverIndex];
 
-    // Always show what user typed
     _addLog(serverId, '> $command');
 
-    // Server must be online for most commands
     if (server.status != ServerStatus.online) {
       _addLog(serverId, 'ERROR Server is not running. Start the server first.');
       return;
     }
 
-    // Normalize: remove leading /
     String cmd = command.startsWith('/') ? command.substring(1) : command;
     final parts = cmd.split(RegExp(r'\s+'));
     final mainCmd = parts[0].toLowerCase();
@@ -341,13 +397,12 @@ class ServerProvider extends ChangeNotifier {
         _addLog(serverId, 'INFO /ban <player> [reason] - Ban a player');
         _addLog(serverId, 'INFO /pardon <player> - Unban a player');
         _addLog(serverId, 'INFO /say <message> - Broadcast message');
+        _addLog(serverId, 'INFO /plugins - List installed plugins');
         _addLog(serverId, 'INFO /tp <player> <target> - Teleport');
-        _addLog(serverId, 'INFO /gamemode <mode> [player] - Change gamemode');
-        _addLog(serverId, 'INFO /difficulty <level> - Set difficulty');
-        _addLog(serverId, 'INFO /whitelist <add|remove|list> [player]');
+        _addLog(serverId, 'INFO /gamemode <mode> [player]');
+        _addLog(serverId, 'INFO /difficulty <level>');
         _addLog(serverId, 'INFO /stop - Stop the server');
-        _addLog(serverId, 'INFO /seed - Show world seed');
-        _addLog(serverId, 'INFO /time set <day|night|value>');
+        _addLog(serverId, 'INFO /time set <day|night>');
         _addLog(serverId, 'INFO /weather <clear|rain|thunder>');
         break;
 
@@ -435,8 +490,7 @@ class ServerProvider extends ChangeNotifier {
         if (args.isEmpty) {
           _addLog(serverId, 'ERROR Usage: /say <message>');
         } else {
-          final msg = args.join(' ');
-          _addLog(serverId, 'INFO [Server] $msg');
+          _addLog(serverId, 'INFO [Server] ${args.join(' ')}');
         }
         break;
 
@@ -547,7 +601,13 @@ class ServerProvider extends ChangeNotifier {
 
       case 'plugins':
       case 'pl':
-        _addLog(serverId, 'INFO Plugins (0): None installed yet');
+        final installed = getInstalledPlugins(serverId);
+        if (installed.isEmpty) {
+          _addLog(serverId, 'INFO Plugins (0): None installed');
+        } else {
+          final names = installed.map((p) => p.name).join(', ');
+          _addLog(serverId, 'INFO Plugins (${installed.length}): $names');
+        }
         break;
 
       default:
@@ -558,7 +618,7 @@ class ServerProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ==================== RAM SIMULATION ====================
+  // ==================== RAM ====================
 
   void _startRamSimulation(String id) {
     _ramTimer?.cancel();
@@ -574,8 +634,6 @@ class ServerProvider extends ChangeNotifier {
       double newUsage = server.usedRamGb + (random.nextDouble() - 0.5) * 0.12;
       newUsage = newUsage.clamp(0.35, server.maxRamGb * 0.92);
       server.usedRamGb = double.parse(newUsage.toStringAsFixed(2));
-
-      // Keep onlinePlayers in sync with list
       server.onlinePlayers = (_onlinePlayers[id] ?? []).length;
 
       notifyListeners();
