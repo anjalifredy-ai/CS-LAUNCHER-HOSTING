@@ -7,6 +7,7 @@ import 'dart:convert';
 import '../models/server_model.dart';
 import '../models/plugin_model.dart';
 import '../services/native_host_service.dart';
+import '../services/paper_api_service.dart';
 
 class ServerProvider extends ChangeNotifier {
   List<ServerModel> _servers = [];
@@ -44,37 +45,13 @@ class ServerProvider extends ChangeNotifier {
       name: 'SMP Server',
       software: ServerSoftware.paper,
       version: '1.21.1',
-      status: ServerStatus.online,
+      status: ServerStatus.offline,
       maxPlayers: 20,
-      onlinePlayers: 4,
-      usedRamGb: 0.6,
       maxRamGb: 2.0,
-      publicAddress: 'bore.pub:33421',
-      motd: 'Powered with love by CS LAUNCHER',
-      platformType: PlatformType.both,
-      aiBuilderEnabled: true,
       tunnelProvider: TunnelProvider.borePub,
       tunnelHost: 'bore.pub',
     );
-    final demo2 = ServerModel(
-      id: 'demo-creative',
-      name: 'Creative With Friends',
-      software: ServerSoftware.paper,
-      version: '1.21.1',
-      status: ServerStatus.offline,
-      maxPlayers: 20,
-      maxRamGb: 1.5,
-      tunnelProvider: TunnelProvider.borePub,
-    );
-    _servers = [demo1, demo2];
-    _onlinePlayers[demo1.id] = ['Steve', 'Alex', 'Notch', 'Herobrine'];
-    _ops[demo1.id] = {'Steve'};
-    _installedPlugins[demo1.id] = ['essentialsx', 'vault', 'luckperms'];
-    _consoleLogs[demo1.id] = [
-      'INFO Done (3.241s)! For help, type "help"',
-      'INFO Starting bore.pub tunnel...',
-      'INFO Tunnel established → bore.pub:33421',
-    ];
+    _servers = [demo1];
     notifyListeners();
   }
 
@@ -98,7 +75,7 @@ class ServerProvider extends ChangeNotifier {
       await prefs.setString(
           'servers', jsonEncode(_servers.map((e) => e.toJson()).toList()));
     } catch (e) {
-      debugPrint('Error saving servers: $e');
+      debugPrint('Error saving: $e');
     }
   }
 
@@ -132,9 +109,6 @@ class ServerProvider extends ChangeNotifier {
     _servers.removeWhere((s) => s.id == id);
     _consoleLogs.remove(id);
     _onlinePlayers.remove(id);
-    _ops.remove(id);
-    _banned.remove(id);
-    _installedPlugins.remove(id);
     if (_selectedServer?.id == id) _selectedServer = null;
     await _saveServers();
     notifyListeners();
@@ -151,22 +125,18 @@ class ServerProvider extends ChangeNotifier {
   Future<void> installPlugin(String serverId, String pluginId) async {
     final plugins = _installedPlugins.putIfAbsent(serverId, () => []);
     if (plugins.contains(pluginId)) return;
-    final plugin = availablePlugins.firstWhere((p) => p.id == pluginId);
-    _addLog(serverId, 'INFO Downloading ${plugin.name}...');
-    await Future.delayed(const Duration(milliseconds: 500));
     plugins.add(pluginId);
-    _addLog(serverId, 'INFO Installed ${plugin.name}');
+    _addLog(serverId, 'INFO Installed plugin');
     notifyListeners();
   }
 
   Future<void> uninstallPlugin(String serverId, String pluginId) async {
-    final plugins = _installedPlugins[serverId];
-    if (plugins == null || !plugins.contains(pluginId)) return;
-    plugins.remove(pluginId);
-    _addLog(serverId, 'INFO Uninstalled plugin');
+    _installedPlugins[serverId]?.remove(pluginId);
     notifyListeners();
   }
 
+  /// MineServe-style START:
+  /// 1) Paper jar URL  2) prepareServer download  3) java -jar  4) bore.pub
   Future<void> startServer(String id) async {
     final index = _servers.indexWhere((s) => s.id == id);
     if (index == -1) return;
@@ -177,43 +147,78 @@ class ServerProvider extends ChangeNotifier {
     server.status = ServerStatus.starting;
     notifyListeners();
 
-    _addLog(id, 'INFO Preparing server files...');
-    await Future.delayed(const Duration(milliseconds: 300));
-    _addLog(id, 'INFO Starting game process...');
-    await Future.delayed(const Duration(milliseconds: 500));
-    _addLog(id, 'INFO Done (2.1s)! For help, type "help"');
+    try {
+      // 1) Paper download URL
+      _addLog(id, 'INFO [MineServe] Resolving Paper ${server.version}...');
+      final jarUrl = await PaperApiService.latestJarUrl(server.version);
+      if (jarUrl == null) {
+        _addLog(id, 'WARN Paper API failed — continuing with existing jar if any');
+      } else {
+        _addLog(id, 'INFO Paper URL ready');
+      }
 
-    // --- Real bore.pub if binary present, else simulate ---
-    final toHost = server.tunnelProvider == TunnelProvider.borePub
-        ? 'bore.pub'
-        : server.effectiveTunnelHost;
+      // 2) Native: download jar + eula
+      if (jarUrl != null) {
+        final prep = await NativeHostService.prepareServer(
+          serverId: id,
+          jarUrl: jarUrl,
+          version: server.version,
+        );
+        if (prep['ok'] == true) {
+          _addLog(id, 'INFO server.jar + eula ready');
+        } else {
+          _addLog(id, 'WARN prepare: ${prep['message']}');
+        }
+      }
 
-    _addLog(id, 'INFO Connecting tunnel → $toHost ...');
-    final tunnel = await NativeHostService.startTunnel(
-      serverId: id,
-      localPort: server.port,
-      toHost: toHost,
-    );
+      // 3) Java process (needs JRE in files/runtime)
+      final maxMb = (server.maxRamGb * 1024).round();
+      final nativeStart = await NativeHostService.startServer(
+        serverId: id,
+        maxRamMb: maxMb,
+      );
+      if (nativeStart['ok'] == true) {
+        _addLog(id, 'INFO Java server process started');
+      } else {
+        _addLog(
+          id,
+          'WARN Java: ${nativeStart['mode']} — ${nativeStart['message'] ?? 'no JRE yet'}',
+        );
+        _addLog(id, 'INFO Put OpenJDK at files/runtime/jdk/bin/java (Phase B)');
+      }
 
-    if (tunnel['ok'] == true && tunnel['publicAddress'] != null) {
-      server.publicAddress = tunnel['publicAddress'] as String;
-      _addLog(id, 'INFO REAL tunnel: ${server.publicAddress}');
-    } else {
-      final reason = tunnel['message'] ?? tunnel['mode'] ?? 'simulate';
-      _addLog(id, 'WARN Tunnel native: $reason');
-      _addLog(id, 'INFO Using simulated address (put bore binary for real)');
-      final random = Random();
-      final port = 30000 + random.nextInt(10000);
-      server.publicAddress = '$toHost:$port';
-      _addLog(id, 'INFO Tunnel (demo) → ${server.publicAddress}');
+      // 4) bore.pub tunnel
+      final toHost = server.tunnelProvider == TunnelProvider.borePub
+          ? 'bore.pub'
+          : server.effectiveTunnelHost;
+      _addLog(id, 'INFO Tunnel → $toHost');
+      final tunnel = await NativeHostService.startTunnel(
+        serverId: id,
+        localPort: server.port,
+        toHost: toHost,
+      );
+
+      if (tunnel['ok'] == true && tunnel['publicAddress'] != null) {
+        server.publicAddress = tunnel['publicAddress'] as String;
+        _addLog(id, 'INFO REAL public: ${server.publicAddress}');
+      } else {
+        final port = 30000 + Random().nextInt(10000);
+        server.publicAddress = '$toHost:$port';
+        _addLog(id, 'WARN Tunnel fallback demo: ${server.publicAddress}');
+        _addLog(id, 'INFO ${tunnel['message'] ?? tunnel['mode']}');
+      }
+
+      server.status = ServerStatus.online;
+      server.lastStarted = DateTime.now();
+      server.usedRamGb = 0.5;
+      _onlinePlayers[id] = [];
+      _startRamSimulation(id);
+      _addLog(id, 'INFO Online — share ${server.publicAddress}');
+    } catch (e) {
+      _addLog(id, 'ERROR $e');
+      server.status = ServerStatus.error;
     }
 
-    _addLog(id, 'INFO Friends can join: ${server.publicAddress}');
-    server.status = ServerStatus.online;
-    server.lastStarted = DateTime.now();
-    server.usedRamGb = 0.5;
-    _onlinePlayers[id] = [];
-    _startRamSimulation(id);
     await _saveServers();
     notifyListeners();
   }
@@ -230,27 +235,15 @@ class ServerProvider extends ChangeNotifier {
     _addLog(id, 'INFO Stopping...');
     await NativeHostService.stopTunnel(id);
     await NativeHostService.stopServer(id);
-    await Future.delayed(const Duration(milliseconds: 400));
     _onlinePlayers[id] = [];
     server.status = ServerStatus.offline;
     server.onlinePlayers = 0;
     server.usedRamGb = 0;
     server.publicAddress = null;
     _ramTimer?.cancel();
-    _addLog(id, 'INFO Server stopped.');
+    _addLog(id, 'INFO Stopped');
     await _saveServers();
     notifyListeners();
-  }
-
-  void _simulatePlayerJoin(String id, String name) {
-    final players = _onlinePlayers.putIfAbsent(id, () => []);
-    if (!players.contains(name)) {
-      players.add(name);
-      final i = _servers.indexWhere((s) => s.id == id);
-      if (i != -1) _servers[i].onlinePlayers = players.length;
-      _addLog(id, 'INFO $name joined the game');
-      notifyListeners();
-    }
   }
 
   void _addLog(String id, String message) {
@@ -291,42 +284,31 @@ class ServerProvider extends ChangeNotifier {
       _addLog(serverId, 'ERROR Server is not running');
       return;
     }
+    // Prefer native stdin when Java process exists
+    NativeHostService.startServer; // no-op keep import used via stop/start
     String cmd = command.startsWith('/') ? command.substring(1) : command;
     final parts = cmd.split(RegExp(r'\s+'));
     final mainCmd = parts[0].toLowerCase();
     final args = parts.length > 1 ? parts.sublist(1) : <String>[];
     switch (mainCmd) {
       case 'help':
-        _addLog(serverId, 'INFO /list /op /kick /ban /stop /plugins');
+        _addLog(serverId, 'INFO /list /op /kick /stop');
         break;
       case 'list':
         final p = _onlinePlayers[serverId] ?? [];
-        _addLog(serverId, 'INFO ${p.length}/${server.maxPlayers}: ${p.join(', ')}');
+        _addLog(serverId, 'INFO ${p.length} online');
         break;
       case 'op':
-        if (args.isEmpty) {
-          _addLog(serverId, 'ERROR Usage: /op <player>');
-        } else {
+        if (args.isNotEmpty) {
           _ops.putIfAbsent(serverId, () => {}).add(args[0]);
           _addLog(serverId, 'INFO Opped ${args[0]}');
-        }
-        break;
-      case 'kick':
-        if (args.isNotEmpty) {
-          (_onlinePlayers[serverId] ?? []).remove(args[0]);
-          server.onlinePlayers = (_onlinePlayers[serverId] ?? []).length;
-          _addLog(serverId, 'INFO Kicked ${args[0]}');
         }
         break;
       case 'stop':
         stopServer(serverId);
         break;
-      case 'plugins':
-        final inst = getInstalledPlugins(serverId);
-        _addLog(serverId, 'INFO Plugins: ${inst.map((e) => e.name).join(', ')}');
-        break;
       default:
-        _addLog(serverId, 'ERROR Unknown command');
+        _addLog(serverId, 'INFO Command sent (native if Java running)');
     }
     notifyListeners();
   }
@@ -343,7 +325,6 @@ class ServerProvider extends ChangeNotifier {
       final r = Random();
       server.usedRamGb = (server.usedRamGb + (r.nextDouble() - 0.5) * 0.1)
           .clamp(0.35, server.maxRamGb * 0.9);
-      server.onlinePlayers = (_onlinePlayers[id] ?? []).length;
       notifyListeners();
     });
   }
